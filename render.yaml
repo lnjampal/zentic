@@ -6,7 +6,7 @@ services:
     runtime: docker
     rootDir: server
     dockerfilePath: ./Dockerfile
-    plan: starter            # always-on: in-process cron jobs and background audits need it (free instances sleep)
+    plan: free               # free tier sleeps after 15 min idle; switch to starter for always-on cron and background audits
     region: singapore        # closest Render region to India
     healthCheckPath: /
     autoDeploy: true
