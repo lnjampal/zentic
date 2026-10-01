@@ -31,7 +31,7 @@ Import the repo, **Root Directory `web`**, framework Next.js. Environment variab
 | `NEXT_PUBLIC_API_URL` | Render service URL, e.g. `https://zentic-api.onrender.com` |
 | `NEXT_PUBLIC_APP_URL` | the Vercel URL (or custom domain) |
 | `NEXT_PUBLIC_IS_CLOUD` | `false` until Stripe plans are configured |
-| `ZENTIC_ENCRYPTION_KEY` | 64 hex characters (`openssl rand -hex 32`) |
+| `ZENTIC_ENCRYPTION_KEY` | 32 random bytes, base64 (`openssl rand -base64 32`) |
 | `STRIPE_SECRET_KEY` | Stripe key, or a test key until billing is live |
 | `CRON_SECRET` | random string; Vercel sends it to `/api/cron/daily-tracking` |
 
