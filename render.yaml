@@ -1,0 +1,45 @@
+# Render Blueprint for the Zentic API server (server/). The web app deploys to Vercel.
+# Secrets are marked sync: false: Render asks for them when the Blueprint is created.
+services:
+  - type: web
+    name: zentic-api
+    runtime: docker
+    rootDir: server
+    dockerfilePath: ./Dockerfile
+    plan: starter            # always-on: in-process cron jobs and background audits need it (free instances sleep)
+    region: singapore        # closest Render region to India
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "80"
+      - key: IS_CLOUD
+        value: "false"       # self-hosted plan limits (unlimited); set "true" once Stripe plans are configured
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false          # e.g. https://zentic.vercel.app,https://zentic.ai
+      - key: GOOGLE_GENERATIVE_AI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SCRAPEDO_API_KEY
+        sync: false
+      - key: AUDIT_LLM_MODEL
+        value: google/gemini-3-flash-preview
+      - key: DEFAULT_SUGGESTION_MODEL
+        value: google/gemini-3-flash-preview
+      - key: TOPIC_SUGGESTION_MODEL
+        value: google/gemini-3-flash-preview
+      - key: PROMPT_SUGGESTION_MODEL
+        value: google/gemini-3-flash-preview
+      - key: COMPETITOR_SUGGESTION_MODEL
+        value: google/gemini-3-flash-preview
+      - key: PUBLIC_AUDIT_DEV_SKIP_VERIFY
+        value: "false"

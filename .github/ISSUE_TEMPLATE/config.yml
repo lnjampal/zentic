@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://docs.zentic.ai
+    about: Setup, self-hosting, and usage guides.
+  - name: Questions & Ideas
+    url: https://github.com/zentic/zentic/discussions
+    about: Ask a question or propose an idea in Discussions.

@@ -1,0 +1,61 @@
+{
+  "name": "@zentic/zentic-server",
+  "version": "0.3.0",
+  "description": "Zentic - AI Engine Optimization Server",
+  "main": "src/server.js",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zentic/zentic.git",
+    "directory": "server"
+  },
+  "homepage": "https://github.com/zentic/zentic",
+  "scripts": {
+    "dev": "NODE_ENV=development nodemon src/server.js",
+    "start": "NODE_ENV=production pm2 start src/server.js --max-restarts 10000",
+    "lint": "eslint .",
+    "format": "prettier --write \"src/**/*.js\" --ignore-path .prettierignore",
+    "format:check": "prettier --check \"src/**/*.js\" --ignore-path .prettierignore",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "ai": "node scripts/switch-ai.mjs status",
+    "ai:google": "node scripts/switch-ai.mjs google",
+    "ai:openai": "node scripts/switch-ai.mjs openai",
+    "ai:test": "node scripts/test-ai.mjs"
+  },
+  "keywords": [],
+  "author": "Zentic",
+  "license": "MIT",
+  "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.58",
+    "@ai-sdk/google": "^3.0.43",
+    "@ai-sdk/openai": "^3.0.41",
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@composio/core": "^0.14.1",
+    "@supabase/supabase-js": "^2.49.1",
+    "ai": "^6.0.116",
+    "body-parser": "^1.20.2",
+    "cheerio": "^1.2.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.4",
+    "helmet": "^7.1.0",
+    "node-cron": "^4.2.1",
+    "openai": "^6.27.0",
+    "pino": "^10.3.1",
+    "playwright-core": "^1.63.0",
+    "pm2": "^5.3.0",
+    "socket.io": "^4.7.2",
+    "uuid": "^9.0.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.27.0",
+    "eslint": "^9.27.0",
+    "eslint-config-prettier": "^10.1.8",
+    "nodemon": "^3.0.2",
+    "prettier": "^3.8.3",
+    "vitest": "^3.2.6"
+  }
+}

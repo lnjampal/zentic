@@ -1,0 +1,95 @@
+You are implementing the attached Ansvisor Design System in my application.
+
+Treat the attached ansvisor-design-system folder as the authoritative reusable
+library. Do not recreate it from a screenshot or substitute a generic theme.
+
+FIRST
+1. Inspect my existing application and identify its framework and package manager.
+2. Read README-EXPORT.md, tokens.json, docs/AGENTS.md,
+   docs/consuming-web.md, and (for Next.js) docs/consuming-nextjs.md.
+3. Inventory existing screens, interactions, data sources, and local UI primitives.
+4. Explain the integration briefly, then implement it. Preserve the current
+   framework: do not migrate React/Vite to Next.js or change the application's
+   backend, authentication, data, or routing merely to use the design system.
+5. If no application exists, ask what application/screens I want implemented
+   before inventing a product or creating a backend.
+
+PACKAGE INTEGRATION
+- Keep the attached library as a local package inside my project, e.g.
+  packages/ansvisor-design-system. Retain the name
+  @workspace/ansvisor-design-system; the name does not require Replit.
+- In a monorepo add it as a workspace dependency. Outside a workspace, add it
+  as a file dependency pointing to its folder and install from the app root.
+  Do not install a second React runtime inside the library.
+- This is typed TypeScript source, not precompiled JavaScript. Preserve its
+  export map, CSS sideEffects entry, React peer dependencies, and client directives.
+- For Next.js App Router, add @workspace/ansvisor-design-system to
+  transpilePackages in next.config. Use Tailwind CSS 4 with
+  @tailwindcss/postcss and import the library's styles.css exactly once through
+  app/globals.css imported by app/layout.tsx.
+- For React/Vite, import the same library theme once from the application's
+  root stylesheet. Do not layer a second Tailwind root or a second token theme.
+- Use strict TypeScript, normal JSX support, and bundler module resolution.
+- Next.js 16.3.6, React 19.1.0, and TypeScript 5.9.3 were verified in the source
+  workspace. Do not downgrade a working application merely to match these versions.
+
+VISUAL REQUIREMENTS
+- tokens.json and src/generated/tokens.tsx are the source of truth for colors,
+  fonts, radii, and spacing. Do not invent new brand colors or hardcode a
+  competing palette in the consuming app.
+- Use DM Sans for body/UI, Manrope for headings, and DM Mono for metadata.
+  Load the font families using the documented stylesheet or self-hosted fonts.
+- Preserve white surfaces, navy hierarchy, orange accents, cool borders,
+  and the contrast-safe foregrounds already defined by the library.
+- Default button labels are 13px, small labels 12px, and dropdown items 15px.
+  Do not shrink these back to the original tiny dashboard labels.
+- If implementing the living design-system browser itself, preserve its top
+  grouped menu, search, light/dark switch, full-width layout with small edge
+  padding, active-section indication, and URL deep links. Do not restore the
+  old left sidebar or centered maximum-width content restriction.
+- Dark mode is a derived companion, not a mode present in the original mockup.
+  Keep this distinction in any source/fidelity documentation.
+- The retained audit dashboard is a visual reference with fictional sample
+  data. It is not evidence of a working crawler, analytics service, or API.
+
+COMPONENT RULES
+- Import provided primitives directly from the package, for example:
+  @workspace/ansvisor-design-system/components/ui/button
+  @workspace/ansvisor-design-system/components/ui/card
+  @workspace/ansvisor-design-system/components/ui/dropdown-menu
+- Replace app-local copies of primitives the library already provides after
+  migrating all imports. Keep product-specific compositions and business logic
+  in the app. Do not silently discard existing behavior.
+- Use components as styled. Pass layout-only className overrides; use the
+  documented component variants rather than repainting their colors, border,
+  font sizes, or radii. If a new shared variant is genuinely required, add it
+  to the library and its story, rather than overriding every consumer.
+- All UI components and hooks are client boundaries. In Next.js, put
+  application event handlers and state in a client component; never pass
+  nonserializable callbacks from a Server Component.
+- Tokens and lib/utils are server-safe. When calling style factories in a
+  Server Component, use lib/button-variants, lib/badge-variants, or
+  lib/toggle-variants, not their legacy client-component re-exports.
+- Import the package's toast hook and Toaster together; do not mix its store
+  with a local toast hook.
+
+IMPLEMENTATION AND VERIFICATION
+1. Render one packaged Button and run the app's typecheck before migrating
+   the full component surface.
+2. Migrate the requested screens while preserving routing, keyboard access,
+   focus states, responsive behavior, filtering, forms, and existing data flows.
+3. Edit tokens.json only for token changes, then run the package's tokens
+   command. Never hand-edit src/index.css or src/generated/tokens.tsx.
+4. Run the app's typecheck and production build; verify representative desktop
+   and mobile views and actual changed interactions.
+5. The package also includes check:compatibility, typecheck:consumer, and
+   test:next scripts plus test fixtures. These are checks, not deployable products.
+6. Report the changed files, checks performed, and any real limitations.
+
+Some included documentation discusses the original Replit canvas/workspace.
+Those canvas-specific paths or tools are not prerequisites for implementing
+this package in my own application. Use the portable package setup above.
+
+Do not claim that features work without verifying them. Do not add unrelated
+features, replace the design system, or change an application's framework
+without my explicit approval.

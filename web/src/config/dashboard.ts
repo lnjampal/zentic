@@ -1,0 +1,141 @@
+import {
+  BarChart3,
+  Building2,
+  FileBarChart,
+  FileText,
+  Gauge,
+  Globe,
+  LineChart,
+  Quote,
+  ShoppingBag,
+  Sparkles,
+  Tag,
+  Target,
+} from 'lucide-react';
+import type { Feature } from '@/config/plans';
+
+/**
+ * A brand-level preference that, when present on a NavItem, must be `true`
+ * on the active brand for the item to render at all. Distinct from plan-level
+ * `requiredFeature` which downgrades the item to a locked/disabled state when
+ * the plan doesn't include it — `requiresBrandPref` hides the item entirely so
+ * it doesn't appear as a "you could have this if you paid more" hint when the
+ * active brand isn't supposed to see Shopping in the first place.
+ */
+export type BrandPrefKey = 'shoppingModeEnabled';
+
+export interface NavItem {
+  title: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  badge?: string;
+  disabled?: boolean;
+  requiredFeature?: Feature;
+  requiresBrandPref?: BrandPrefKey;
+}
+
+export interface NavGroup {
+  title?: string;
+  items: NavItem[];
+}
+
+export const dashboardNav: NavGroup[] = [
+  {
+    items: [
+      {
+        title: 'Brands',
+        href: '/dashboard/brands',
+        icon: Building2,
+      },
+      {
+        title: 'Action Center',
+        href: '/dashboard/action-center',
+        icon: Target,
+        badge: 'New',
+      },
+    ],
+  },
+  {
+    title: 'Analytics',
+    items: [
+      {
+        title: 'Answer Engine Insights',
+        href: '/dashboard/insights',
+        icon: BarChart3,
+        requiredFeature: 'basic_insights',
+      },
+      {
+        title: 'Prompts',
+        href: '/dashboard/prompts',
+        icon: Globe,
+      },
+      {
+        title: 'Topics',
+        href: '/dashboard/topics',
+        icon: Tag,
+      },
+      {
+        title: 'Citations',
+        href: '/dashboard/citations',
+        icon: Quote,
+      },
+      {
+        title: 'Shopping',
+        href: '/dashboard/shopping',
+        icon: ShoppingBag,
+        requiredFeature: 'shopping_analytics',
+        requiresBrandPref: 'shoppingModeEnabled',
+      },
+      {
+        title: 'AI Traffic Analytics',
+        href: '/dashboard/traffic',
+        icon: LineChart,
+        requiredFeature: 'advanced_analytics',
+      },
+    ],
+  },
+  {
+    title: 'Optimization',
+    items: [
+      {
+        title: 'Content Optimization',
+        href: '/dashboard/content',
+        icon: FileText,
+        requiredFeature: 'content_optimization',
+      },
+      {
+        title: 'Site Audit',
+        href: '/dashboard/audit',
+        icon: Gauge,
+        requiredFeature: 'content_optimization',
+      },
+      // The route stays /dashboard/agent: renaming the URL would break every
+      // existing link for a label change, and the sidebar's "Set up" badge
+      // keys off that href.
+      {
+        title: 'Chat',
+        href: '/dashboard/agent',
+        icon: Sparkles,
+        requiredFeature: 'ai_agent',
+      },
+    ],
+  },
+  /**
+   * Reports sits in its own group rather than under Analytics or Optimization,
+   * because it draws on both: of its thirteen sections, `auditScore` comes from
+   * Site Audit and the rest from the analytics surfaces. Filing it under either
+   * heading would understate what it covers.
+   *
+   * It is also the only way into /dashboard/reports besides the button on
+   * Visibility — from Citations or Site Audit there was no route to it at all.
+   */
+  {
+    items: [
+      {
+        title: 'Reports',
+        href: '/dashboard/reports',
+        icon: FileBarChart,
+      },
+    ],
+  },
+];

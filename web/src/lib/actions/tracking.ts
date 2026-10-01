@@ -1,0 +1,3268 @@
+'use server';
+
+import { dbClient, withDbClient } from '@/lib/supabase/scoped';
+import { expandDateToEndOfDay } from '@/lib/dates';
+import { computeAiVisibilityScore } from '@/lib/visibility-score';
+import type {
+  PromptResult,
+  AIPlatform,
+  Sentiment,
+  Citation,
+  CompetitorMention,
+  Topic,
+  ObservedSearchQuery,
+} from '@/types';
+import { API_BASE_URL } from '@/config/api';
+import {
+  classifyDomain,
+  extractHostname,
+  normalizeDomain,
+  type SourceCategory,
+} from '@/lib/citations/classify';
+import { normalizeCitationUrl } from '@/lib/citations/normalize';
+import { getTopicById } from '@/lib/actions/topic';
+import { getOrgPlan } from '@/lib/guards/plan-guard';
+import { getOrgLocationUsage } from '@/lib/prompt-locations';
+import { getPromptVolumes } from '@/lib/actions/volumes';
+import { getPromptSuggestions } from '@/lib/actions/prompt-suggestions';
+import { aggregatePromptVolumeClusters } from '@/lib/prompt-volume-clusters';
+import { percentageChange } from '@/lib/metrics';
+import { PLATFORM_LABELS } from '@/config/platform-labels';
+
+/** Round to one decimal place (keeps sub-1 averages visible instead of flooring to 0). */
+function roundTo1(n: number): number {
+  return Math.round(n * 10) / 10;
+}
+
+/**
+ * Apply the `model` filter to a Supabase query against `prompt_results.model_used`.
+ *
+ * Accepts either a single slug ("gpt-5-5") or a comma-separated list
+ * ("gpt-5-5,gpt-5-3-mini,chatgpt-web") so callers can filter by a provider
+ * family without the UI having to enumerate every per-model row in the
+ * filter dropdown.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyModelFilter<T extends { eq: any; in: any }>(query: T, model: string | undefined): T {
+  if (!model) return query;
+  const list = model
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (list.length <= 1) return query.eq('model_used', list[0] ?? model);
+  return query.in('model_used', list);
+}
+
+function mapResultRow(row: Record<string, unknown>): PromptResult {
+  return {
+    id: row.id as string,
+    promptId: row.prompt_id as string,
+    brandId: row.brand_id as string,
+    platform: row.platform as AIPlatform,
+    response: row.response as string,
+    citations: (row.citations as Citation[]) ?? [],
+    mentionCount: row.mention_count as number,
+    citationCount: row.citation_count as number,
+    sentiment: row.sentiment as Sentiment,
+    visibilityScore: row.visibility_score as number,
+    modelUsed: (row.model_used as string | null) ?? undefined,
+    region: (row.region as string | null) ?? undefined,
+    competitorMentions: (row.competitor_mentions as CompetitorMention[] | null) ?? undefined,
+    searchQueries: Array.isArray(row.search_queries)
+      ? (row.search_queries as ObservedSearchQuery[])
+      : [],
+    createdAt: row.created_at as string,
+  };
+}
+
+export interface PromptResultWithText extends PromptResult {
+  promptText: string;
+  promptCategory?: string;
+  topicId?: string;
+  topicName?: string;
+}
+
+/** One row of the prompt detail "Top Sources" card — mirrors CitationDomainRow. */
+export interface PromptTopSource {
+  domain: string;
+  category: SourceCategory;
+  models: string[];
+  totalCitations: number;
+  resultsCiting: number;
+  usagePct: number;
+}
+
+/** One URL row of the prompt detail "Top Sources" card — mirrors CitationUrlRow. */
+export interface PromptTopSourceUrl {
+  url: string;
+  domain: string;
+  category: SourceCategory;
+  title: string;
+  models: string[];
+  totalCitations: number;
+  resultsCiting: number;
+  usagePct: number;
+}
+
+export interface PromptDetailData {
+  prompt: {
+    id: string;
+    brandId: string;
+    text: string;
+    category?: string;
+    topicId?: string;
+    topicName?: string;
+    isActive: boolean;
+    createdAt: string;
+  };
+  summary: {
+    avgVisibilityScore: number;
+    /** visibleResults / totalResults as a percentage, one decimal (coverage). */
+    visibilityRate: number;
+    /** Results with >= 1 brand mention/citation. */
+    visibleResults: number;
+    /** AI Visibility Score (0-100) over this prompt's loaded answers. */
+    score: number | null;
+    mentionAnswers: number;
+    citationAnswers: number;
+    positionFactor: number | null;
+    totalMentions: number;
+    totalCitations: number;
+    totalResults: number;
+    lastCheckedAt: string | null;
+  };
+  results: PromptResultWithText[];
+  topSources: PromptTopSource[];
+  topSourceUrls: PromptTopSourceUrl[];
+}
+
+export interface InsightsSummary {
+  avgVisibilityScore: number;
+  totalMentions: number;
+  totalCitations: number;
+  positiveSentimentPct: number;
+  totalResults: number;
+  lastCheckedAt: string | null;
+  platformBreakdown: {
+    platform: string;
+    avgScore: number;
+    resultCount: number;
+  }[];
+  visibilityChange: number | null;
+  /** Percentage change vs the previous period; null when the previous count is zero or unavailable. */
+  mentionsChange: number | null;
+  /** Percentage change vs the previous period; null when the previous count is zero or unavailable. */
+  citationsChange: number | null;
+  /** Raw previous-period count, used to distinguish a zero base from unavailable comparison data. */
+  prevMentions: number | null;
+  /** Raw previous-period count, used to distinguish a zero base from unavailable comparison data. */
+  prevCitations: number | null;
+  sentimentChange: number | null;
+}
+
+/**
+ * Convert the comma-separated `model` filter string the UI passes around
+ * into the `text[]` shape the aggregate RPCs accept. Matches the parsing
+ * applyModelFilter does for the buildResultsQuery path so the two callers
+ * stay equivalent.
+ */
+function modelFilterArray(model: string | undefined): string[] | undefined {
+  if (!model) return undefined;
+  const list = model
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return list.length > 0 ? list : undefined;
+}
+
+// ── Daily-rollup routing (00066) ────────────────────────────────────────────
+//
+// The aggregate RPCs used to rescan a brand's whole history per page load;
+// past ~55k results that exceeds the authenticated role's 8s statement
+// timeout and the wide presets die. Every preset except 24h now describes its
+// window as whole UTC days, and calls that carry one are answered from the
+// pre-aggregated daily tables instead — cost scales with days in the window,
+// never with accumulated results.
+//
+// Topic-filtered calls deliberately stay on the raw RPCs: topic is a live
+// prompt attribute (reassigning a prompt must move its history), the rollups
+// have no prompt dimension at brand grain, and a topic slice is a small
+// fraction of the scan that made the raw path unaffordable.
+
+/**
+ * Whole-day UTC window, 'YYYY-MM-DD' inclusive on both ends. Its presence in
+ * an action's opts marks the call as servable from the daily rollups; either
+ * bound may be absent (the All-time preset carries an empty window).
+ */
+export interface DayWindow {
+  dayFrom?: string;
+  dayTo?: string;
+}
+
+interface WindowedOpts {
+  topicId?: string;
+  days?: DayWindow;
+}
+
+/** The day window to serve from rollups, or null when the raw path must answer. */
+function dailyWindow(opts?: WindowedOpts): DayWindow | null {
+  return opts?.days && !opts.topicId ? opts.days : null;
+}
+
+const DAY_MS = 86_400_000;
+
+function utcToday(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function addDays(day: string, n: number): string {
+  return new Date(Date.parse(`${day}T00:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10);
+}
+
+/**
+ * Current + previous equal-length day windows for the ↑/↓ delta math. An
+ * unbounded window anchors to the trailing 7 days, mirroring what the raw
+ * path's `now() - 7d` default has always compared against. The previous
+ * window ends the day BEFORE the current one starts — the raw path's
+ * timestamp arithmetic let the two windows share their boundary instant.
+ */
+function deltaDayWindows(days: DayWindow): {
+  cur: { dayFrom: string; dayTo: string };
+  prev: { dayFrom: string; dayTo: string };
+} {
+  const curTo = days.dayTo ?? utcToday();
+  const curFrom = days.dayFrom ?? addDays(curTo, -6);
+  const len = Math.round((Date.parse(curTo) - Date.parse(curFrom)) / DAY_MS) + 1;
+  const prevTo = addDays(curFrom, -1);
+  return {
+    cur: { dayFrom: curFrom, dayTo: curTo },
+    prev: { dayFrom: addDays(prevTo, -(len - 1)), dayTo: prevTo },
+  };
+}
+
+// ── RPC return shapes (mirror supabase/migrations/00031_insights_sentiment_denominator.sql) ─
+
+interface InsightsAggregates {
+  total_results: number;
+  sum_visibility: number;
+  total_mentions: number;
+  total_citations: number;
+  positive_count: number;
+  mentioning_results: number;
+  last_checked_at: string | null;
+  by_model: Array<{
+    model_used: string;
+    sum_visibility: number;
+    result_count: number;
+  }>;
+}
+
+interface CompetitorAggregatesRow {
+  brand_row_count: number;
+  brand_sum_visibility: number;
+  brand_total_mentions: number;
+  brand_total_citations: number;
+  brand_prompt_count: number;
+  brand_visible_prompts: number;
+  by_competitor: Array<{
+    competitor_id: string;
+    name: string | null;
+    sum_visibility: number;
+    row_count: number;
+    total_mentions: number;
+    total_citations: number;
+    visible_prompts: number;
+  }>;
+  by_brand_provider: Array<{
+    model_used: string | null;
+    platform: string | null;
+    sum_visibility: number;
+    row_count: number;
+    prompt_count: number;
+    visible_prompts: number;
+  }>;
+  by_competitor_provider: Array<{
+    model_used: string | null;
+    platform: string | null;
+    competitor_id: string;
+    competitor_name: string | null;
+    sum_visibility: number;
+    row_count: number;
+    visible_prompts: number;
+  }>;
+}
+
+interface ShareOfVoiceAggregatesRow {
+  total_brand_mentions: number;
+  total_competitor_mentions: number;
+  by_platform: Array<{
+    model_used: string | null;
+    platform: string | null;
+    brand_mentions: number;
+    competitor_mentions: number;
+  }>;
+  by_day: Array<{
+    day: string;
+    brand_mentions: number;
+    competitor_mentions: number;
+  }>;
+}
+
+/**
+ * Build a filtered query on prompt_results for a brand.
+ */
+async function buildResultsQuery(
+  brandId: string,
+  opts?: {
+    platform?: string;
+    model?: string;
+    region?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    promptId?: string;
+    topicId?: string;
+  },
+  selectOpts?: { count?: 'exact' },
+) {
+  const supabase = await dbClient();
+  // #155 — Insights aggregates exclude `chatgpt-shopping`. That model's
+  // visibility numbers aren't comparable to a normal ChatGPT answer and
+  // would skew brand-level visibility/mentions/citations. Shopping data
+  // is consumed by /dashboard/shopping only.
+  //
+  // `count: 'exact'` (opt-in) makes the query return the full match count
+  // alongside a `.range()` page, so getPromptResults gets an accurate total
+  // without materializing every row. Export leaves it off (it paginates and
+  // doesn't need a per-page count).
+  const base = supabase.from('prompt_results');
+  let query = (selectOpts?.count ? base.select('*', { count: selectOpts.count }) : base.select('*'))
+    .eq('brand_id', brandId)
+    .neq('platform', 'chatgpt-shopping');
+
+  if (opts?.platform) query = query.eq('platform', opts.platform);
+  query = applyModelFilter(query, opts?.model);
+  if (opts?.region) query = query.eq('region', opts.region);
+  if (opts?.dateFrom) query = query.gte('created_at', opts.dateFrom);
+  const expandedDateTo = expandDateToEndOfDay(opts?.dateTo);
+  if (expandedDateTo) query = query.lte('created_at', expandedDateTo);
+  if (opts?.promptId) query = query.eq('prompt_id', opts.promptId);
+
+  if (opts?.topicId) {
+    const { data: topicPrompts } = await supabase
+      .from('prompts')
+      .select('id')
+      .eq('topic_id', opts.topicId);
+    const topicPromptIds = ((topicPrompts ?? []) as { id: string }[]).map((p) => p.id);
+    // Use a sentinel that matches nothing when the topic has no prompts so results are empty.
+    query = query.in(
+      'prompt_id',
+      topicPromptIds.length > 0 ? topicPromptIds : ['00000000-0000-0000-0000-000000000000'],
+    );
+  }
+
+  return { supabase, query };
+}
+
+/**
+ * Fetch prompt results for a brand with proper date filtering.
+ */
+export async function getPromptResults(
+  brandId: string,
+  opts?: {
+    limit?: number;
+    offset?: number;
+    platform?: string;
+    model?: string;
+    region?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    promptId?: string;
+    topicId?: string;
+  },
+): Promise<{ results: PromptResultWithText[]; total: number }> {
+  const limit = opts?.limit ?? 50;
+  const offset = opts?.offset ?? 0;
+
+  const { supabase, query } = await buildResultsQuery(brandId, opts, { count: 'exact' });
+
+  // One round trip: fetch only the requested page via SQL `.range()` and read
+  // the full match count from the same query, instead of materializing every
+  // matching row (all heavy columns) into Node and slicing/counting in JS.
+  const {
+    data: pageRows,
+    count,
+    error,
+  } = await query.order('created_at', { ascending: false }).range(offset, offset + limit - 1);
+  if (error) throw new Error(error.message);
+
+  const rows = (pageRows ?? []) as Record<string, unknown>[];
+  const total = count ?? rows.length;
+
+  const promptIds = [...new Set(rows.map((r) => r.prompt_id as string))];
+  const { data: promptRows } =
+    promptIds.length > 0
+      ? await supabase.from('prompts').select('id, text, category, topic_id').in('id', promptIds)
+      : { data: [] };
+
+  const promptRowsRaw = (promptRows ?? []) as unknown as Record<string, unknown>[];
+
+  const topicIds = [
+    ...new Set(promptRowsRaw.map((p) => p.topic_id as string | null).filter(Boolean) as string[]),
+  ];
+  const { data: topicRows } =
+    topicIds.length > 0
+      ? await supabase.from('topics').select('id, name').in('id', topicIds)
+      : { data: [] };
+  const topicMap = new Map(
+    ((topicRows ?? []) as Record<string, unknown>[]).map((t) => [t.id as string, t.name as string]),
+  );
+
+  const promptMap = new Map(
+    promptRowsRaw.map((p) => [
+      p.id as string,
+      {
+        text: p.text as string,
+        category: p.category as string | null,
+        topicId: p.topic_id as string | null,
+      },
+    ]),
+  );
+
+  // `rows` is already the requested page (SQL `.range()` above), so map it
+  // directly — no JS slicing.
+  const results = rows.map((r) => {
+    const pm = promptMap.get(r.prompt_id as string);
+    return {
+      ...mapResultRow(r),
+      promptText: (pm?.text as string) ?? '',
+      promptCategory: (pm?.category as string | null) ?? undefined,
+      topicId: (pm?.topicId as string | null) ?? undefined,
+      topicName: pm?.topicId
+        ? (topicMap.get(pm.topicId) ?? (pm?.category as string | null) ?? undefined)
+        : ((pm?.category as string | null) ?? undefined),
+    };
+  });
+
+  return { results, total };
+}
+
+export interface TrackedPromptsKpi {
+  /** Distinct prompts with results in the filtered window (shopping excluded). */
+  activeInPeriod: number;
+  /** Org-wide prompt count — the number the plan limit is enforced against. */
+  quotaUsed: number;
+  /** Effective org limit with Enterprise plan_overrides merged; -1 = unlimited. */
+  quotaLimit: number;
+}
+
+export interface VisibilityRateKpi {
+  /** Distinct prompts with >= 1 answer mentioning or citing the brand. */
+  visiblePrompts: number;
+  /** Result rows where the brand appeared. */
+  visibleResults: number;
+  /** Average visibility score over only the rows the brand appeared in. */
+  avgScoreWhenVisible: number;
+}
+
+/**
+ * Visibility Rate KPI — the "appeared" side of the how-often ⁄ how-good
+ * split. Averaging visibility over ALL results reads near zero for most
+ * brands (absent answers contribute 0 each), so the headline shows how many
+ * tracked prompts the brand actually surfaced in, and the average score of
+ * only those appearances. Same filters and shopping exclusion as the rest of
+ * the KPI row; the rate's denominator is TrackedPromptsKpi.activeInPeriod.
+ */
+export async function getVisibilityRateKpi(
+  brandId: string,
+  opts?: {
+    model?: string;
+    region?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    topicId?: string;
+    days?: DayWindow;
+  },
+): Promise<VisibilityRateKpi> {
+  const supabase = await dbClient();
+  const daily = dailyWindow(opts);
+
+  const { data, error } = daily
+    ? await supabase.rpc('visible_prompt_stats_daily', {
+        p_brand_id: brandId,
+        p_platform: undefined,
+        p_models: modelFilterArray(opts?.model),
+        p_region: opts?.region ?? undefined,
+        p_day_from: daily.dayFrom,
+        p_day_to: daily.dayTo,
+      })
+    : await supabase.rpc('visible_prompt_stats', {
+        p_brand_id: brandId,
+        p_platform: undefined,
+        p_models: modelFilterArray(opts?.model),
+        p_region: opts?.region ?? undefined,
+        p_date_from: opts?.dateFrom ?? undefined,
+        p_date_to: expandDateToEndOfDay(opts?.dateTo) ?? undefined,
+        p_topic_id: opts?.topicId ?? undefined,
+      });
+  if (error) throw new Error(error.message);
+
+  const row = (data ?? {}) as {
+    visible_prompts?: number;
+    visible_results?: number;
+    sum_visibility_visible?: number;
+  };
+  const visibleResults = Number(row.visible_results ?? 0);
+  return {
+    visiblePrompts: Number(row.visible_prompts ?? 0),
+    visibleResults,
+    avgScoreWhenVisible:
+      visibleResults > 0 ? Math.round(Number(row.sum_visibility_visible ?? 0) / visibleResults) : 0,
+  };
+}
+
+/**
+ * Tracked Prompts KPI (#457). The main value is period-aware — distinct
+ * prompts that produced results under the SAME filters as the other KPI
+ * cards (the `tracked_prompt_count` RPC mirrors `insights_aggregates`,
+ * shopping excluded) — because a static account-state number sitting in a
+ * filter-reactive row would read as inconsistent. The quota sub-line is
+ * deliberately a "now" fact: org-wide tracked LOCATIONS against the
+ * effective plan limit (#691), from the same counter every write-path guard
+ * uses, so the number shown and the number that rejects a save cannot
+ * disagree.
+ */
+export async function getTrackedPromptsKpi(
+  brandId: string,
+  opts?: {
+    model?: string;
+    region?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    topicId?: string;
+    days?: DayWindow;
+  },
+): Promise<TrackedPromptsKpi> {
+  const supabase = await dbClient();
+  const daily = dailyWindow(opts);
+
+  const { data: brand } = await supabase
+    .from('brands')
+    .select('organization_id')
+    .eq('id', brandId)
+    .single();
+  const orgId = (brand?.organization_id as string | undefined) ?? null;
+
+  const countOrgLocations = async (): Promise<number> => {
+    if (!orgId) return 0;
+    const usage = await getOrgLocationUsage(supabase, orgId);
+    return usage.total;
+  };
+
+  const [rpcResult, plan, quotaUsed] = await Promise.all([
+    daily
+      ? supabase.rpc('tracked_prompt_count_daily', {
+          p_brand_id: brandId,
+          p_platform: undefined,
+          p_models: modelFilterArray(opts?.model),
+          p_region: opts?.region ?? undefined,
+          p_day_from: daily.dayFrom,
+          p_day_to: daily.dayTo,
+        })
+      : supabase.rpc('tracked_prompt_count', {
+          p_brand_id: brandId,
+          p_platform: undefined,
+          p_models: modelFilterArray(opts?.model),
+          p_region: opts?.region ?? undefined,
+          p_date_from: opts?.dateFrom ?? undefined,
+          p_date_to: expandDateToEndOfDay(opts?.dateTo) ?? undefined,
+          p_topic_id: opts?.topicId ?? undefined,
+        }),
+    orgId ? getOrgPlan(orgId) : Promise.resolve(null),
+    countOrgLocations(),
+  ]);
+  if (rpcResult.error) throw new Error(rpcResult.error.message);
+
+  return {
+    activeInPeriod: (rpcResult.data as number | null) ?? 0,
+    quotaUsed,
+    quotaLimit: plan?.limits.maxPrompts ?? -1,
+  };
+}
+
+export interface InsightsFilterOptions {
+  /** Distinct result regions for the brand (shopping excluded), sorted. */
+  regions: string[];
+  /** Distinct model_used slugs for the brand (shopping excluded), sorted. */
+  models: string[];
+}
+
+/**
+ * Filter dropdown options for the Insights page (#458). These used to be
+ * derived client-side from the removed results tree's 1500-row fetch; one
+ * DISTINCT scan in Postgres returns the same sets without shipping rows.
+ * Deliberately unfiltered (whole-brand): the dropdowns must keep offering
+ * every value the brand has ever produced, not just the current window's.
+ */
+export async function getBrandFilterOptions(brandId: string): Promise<InsightsFilterOptions> {
+  return getInsightsFilterOptions(brandId);
+}
+
+async function getInsightsFilterOptions(brandId: string): Promise<InsightsFilterOptions> {
+  const supabase = await dbClient();
+  const { data, error } = await supabase.rpc('insights_filter_options', { p_brand_id: brandId });
+  if (error) throw new Error(error.message);
+  const row = (data as { regions: string[] | null; models: string[] | null }[] | null)?.[0];
+  return {
+    regions: row?.regions ?? [],
+    models: row?.models ?? [],
+  };
+}
+
+export interface TopicOpportunity {
+  keyword: string;
+  estimatedAiVolume: number;
+  promptCount: number;
+}
+
+export interface PromptOpportunity {
+  id: string;
+  text: string;
+  topicName?: string;
+  estVolume?: number;
+}
+
+export interface InsightsRecommendations {
+  topics: TopicOpportunity[];
+  prompts: PromptOpportunity[];
+}
+
+/** Items per Recommendations teaser card on the Insights page (#459). */
+const RECOMMENDATION_ITEM_LIMIT = 5;
+
+/**
+ * Teaser data for the Insights Recommendations row (#459): the top stored
+ * similar-topic clusters and prompt suggestions. Both are bounded reads of
+ * already-persisted data — generation only ever happens from the Prompts
+ * page's explicit refresh actions, never from the Insights load path.
+ * Each read degrades independently to an empty list on failure so a hiccup
+ * here can never take the Insights page down with it.
+ */
+async function getInsightsRecommendations(brandId: string): Promise<InsightsRecommendations> {
+  const [topics, prompts] = await Promise.all([
+    getPromptVolumes(brandId)
+      .then(({ volumes }) =>
+        aggregatePromptVolumeClusters(volumes)
+          .slice(0, RECOMMENDATION_ITEM_LIMIT)
+          .map((c) => ({
+            keyword: c.keyword,
+            estimatedAiVolume: c.estimatedAiVolume,
+            promptCount: c.prompts.length,
+          })),
+      )
+      .catch(() => [] as TopicOpportunity[]),
+    getPromptSuggestions(brandId)
+      .then(({ suggestions }) =>
+        suggestions.slice(0, RECOMMENDATION_ITEM_LIMIT).map((s) => ({
+          id: s.id,
+          text: s.suggestedText,
+          topicName: s.topicName ?? undefined,
+          estVolume: s.estVolume ?? undefined,
+        })),
+      )
+      .catch(() => [] as PromptOpportunity[]),
+  ]);
+  return { topics, prompts };
+}
+
+/**
+ * Does this brand have any (non-shopping) prompt_results at all?
+ *
+ * A yes/no question, so it asks for a single row with LIMIT 1 and stops at the
+ * first match, rather than an exact COUNT that visits every matching row only
+ * to compare the total against zero.
+ */
+async function brandHasResults(brandId: string): Promise<boolean> {
+  const supabase = await dbClient();
+  const { data, error } = await supabase
+    .from('prompt_results')
+    .select('id')
+    .eq('brand_id', brandId)
+    .neq('platform', 'chatgpt-shopping')
+    .limit(1);
+  // Throw rather than swallow: a failed check must not masquerade as "no data"
+  // and silently flip the page to its empty state.
+  if (error) throw new Error(error.message);
+  return (data?.length ?? 0) > 0;
+}
+
+export interface InsightsData {
+  summary: InsightsSummary;
+  competitors: CompetitorComparisonData;
+  sov: ShareOfVoiceData;
+  trackedPrompts: TrackedPromptsKpi;
+  visibilityRate: VisibilityRateKpi;
+  filterOptions: InsightsFilterOptions;
+  recommendations: InsightsRecommendations;
+  hasAnyData: boolean;
+}
+
+export interface TrackingWindow {
+  /**
+   * The stable 24h window: (previous completed run, latest completed run].
+   * Null when the brand has no completed run yet (fresh onboarding) — the
+   * caller falls back to the live rolling window, which cannot regress
+   * because a new brand has nothing older than 24h to age out.
+   */
+  anchored: { dateFrom: string; dateTo: string } | null;
+  /** A full run currently in flight (cron or manual), for the progress banner. */
+  activeRun: { startedAt: string; source: string } | null;
+}
+
+/**
+ * Resolve the effective 24h window from the tracking-run ledger (00044).
+ *
+ * The naive `[now - 24h, now]` window empties and refills every morning while
+ * the daily run streams in: old results age out second by second, new ones
+ * arrive over ~an hour, so users watch "no results" flashes and a shrinking
+ * prompt count. Anchoring to the latest COMPLETED run freezes the window
+ * between runs and swaps it atomically when the next run finishes draining.
+ *
+ * The lower bound is capped at the previous run's completion so the window
+ * never bleeds into the prior cycle's drain tail (a run that completes at
+ * 10:15 must not pick up yesterday's 10:20 stragglers).
+ */
+export async function getTrackingWindow(brandId: string): Promise<TrackingWindow> {
+  const supabase = await dbClient();
+
+  const [completedResp, activeResp] = await Promise.all([
+    supabase
+      .from('tracking_runs')
+      .select('completed_at')
+      .eq('brand_id', brandId)
+      .not('completed_at', 'is', null)
+      .order('completed_at', { ascending: false })
+      .limit(2),
+    supabase
+      .from('tracking_runs')
+      .select('started_at, source')
+      .eq('brand_id', brandId)
+      .is('completed_at', null)
+      // A run row without a stamp older than the worker's drain ceiling is a
+      // crashed run, not an active one — never pin the banner on it.
+      .gte('started_at', new Date(Date.now() - 2 * 3600_000).toISOString())
+      .order('started_at', { ascending: false })
+      .limit(1),
+  ]);
+
+  const completed = completedResp.data ?? [];
+  const latest = completed[0]?.completed_at as string | undefined;
+
+  let anchored: TrackingWindow['anchored'] = null;
+  if (latest) {
+    const latestMs = new Date(latest).getTime();
+    const prev = completed[1]?.completed_at as string | undefined;
+    const lowerMs = Math.max(latestMs - 24 * 3600_000, prev ? new Date(prev).getTime() + 1 : 0);
+    anchored = { dateFrom: new Date(lowerMs).toISOString(), dateTo: latest };
+  }
+
+  const active = activeResp.data?.[0];
+  return {
+    anchored,
+    activeRun: active
+      ? { startedAt: active.started_at as string, source: (active.source as string) ?? 'manual' }
+      : null,
+  };
+}
+
+/**
+ * One consolidated server action for the Insights page's first load (#313).
+ *
+ * Next.js runs server actions sequentially (each is its own queued POST), so
+ * firing the summary / competitor / SoV reads separately from the client cost
+ * roughly their sum, not the slowest. This runs them in a real server-side
+ * `Promise.all` (genuinely parallel, one round trip), and derives "has any
+ * data" from a cheap count instead of the old unbounded full-table scan.
+ * The raw prompt_results rows are no longer part of the payload — the
+ * "Prompt Results by Topic" tree they fed was removed in #458.
+ */
+export async function getInsightsData(
+  brandId: string,
+  opts: {
+    model?: string;
+    region?: string;
+    topicId?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    days?: DayWindow;
+    /** When the current view is filtered, check unfiltered data existence too. */
+    checkUnfiltered?: boolean;
+  },
+): Promise<InsightsData> {
+  const filterOpts = {
+    model: opts.model,
+    region: opts.region,
+    topicId: opts.topicId,
+    dateFrom: opts.dateFrom,
+    dateTo: opts.dateTo,
+    days: opts.days,
+  };
+
+  // The two heavyweight sections degrade instead of failing the page: a
+  // competitor or SoV error costs its own card, never the KPI header. Their
+  // empty shapes are exactly what the page already maps to "section hidden"
+  // (brands.length <= 1, byPlatform.length === 0). The summary and KPI reads
+  // stay fatal — the page is meaningless without them, and on the rollup
+  // path they are the cheap ones.
+  const [
+    summary,
+    competitors,
+    sov,
+    trackedPrompts,
+    visibilityRate,
+    filterOptions,
+    recommendations,
+    unfilteredHasData,
+  ] = await Promise.all([
+    getInsightsSummary(brandId, filterOpts),
+    getCompetitorComparison(brandId, filterOpts).catch((err) => {
+      console.error('[insights] competitor comparison failed', err);
+      return { brands: [], providerRows: [] } satisfies CompetitorComparisonData;
+    }),
+    getShareOfVoiceData(brandId, filterOpts).catch((err) => {
+      console.error('[insights] share of voice failed', err);
+      return {
+        overallSov: 0,
+        overallSovChange: null,
+        byPlatform: [],
+        trend: [],
+      } satisfies ShareOfVoiceData;
+    }),
+    getTrackedPromptsKpi(brandId, filterOpts),
+    getVisibilityRateKpi(brandId, filterOpts),
+    getInsightsFilterOptions(brandId),
+    getInsightsRecommendations(brandId),
+    opts.checkUnfiltered ? brandHasResults(brandId) : Promise.resolve(null),
+  ]);
+
+  // insights_aggregates counts the same filtered set the summary shows, so it
+  // stands in for the removed results fetch when no unfiltered check ran.
+  const hasAnyData = unfilteredHasData !== null ? unfilteredHasData : summary.totalResults > 0;
+
+  return {
+    summary,
+    competitors,
+    sov,
+    trackedPrompts,
+    visibilityRate,
+    filterOptions,
+    recommendations,
+    hasAnyData,
+  };
+}
+
+/**
+ * Fetch all prompt results for export, bypassing the default 1000 limit by paginating.
+ * Applies a hard ceiling to prevent OOM errors on massive datasets.
+ */
+export async function exportPromptResults(
+  brandId: string,
+  opts?: {
+    platform?: string;
+    model?: string;
+    region?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    promptId?: string;
+    topicId?: string;
+  },
+): Promise<{ results: PromptResultWithText[]; isCapped: boolean }> {
+  const allRows: Record<string, unknown>[] = [];
+  const pageSize = 1000;
+  const hardCeiling = 50000;
+  let isCapped = false;
+  let offset = 0;
+
+  while (true) {
+    const { query } = await buildResultsQuery(brandId, opts);
+    const { data, error } = await query
+      .order('created_at', { ascending: false })
+      .range(offset, offset + pageSize - 1);
+
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as Record<string, unknown>[];
+    allRows.push(...rows);
+
+    if (rows.length < pageSize) {
+      break; // Reached the end
+    }
+
+    offset += pageSize;
+    if (offset >= hardCeiling) {
+      isCapped = true;
+      break;
+    }
+  }
+
+  const { supabase } = await buildResultsQuery(brandId, opts);
+
+  const promptIds = [...new Set(allRows.map((r) => r.prompt_id as string))];
+  const promptRowsRaw: Record<string, unknown>[] = [];
+  const chunkSize = 500;
+
+  for (let i = 0; i < promptIds.length; i += chunkSize) {
+    const chunk = promptIds.slice(i, i + chunkSize);
+    if (chunk.length > 0) {
+      const { data: pRows } = await supabase
+        .from('prompts')
+        .select('id, text, category, topic_id')
+        .in('id', chunk);
+      if (pRows) {
+        promptRowsRaw.push(...(pRows as unknown as Record<string, unknown>[]));
+      }
+    }
+  }
+
+  const topicIds = [
+    ...new Set(promptRowsRaw.map((p) => p.topic_id as string | null).filter(Boolean) as string[]),
+  ];
+  const topicRowsRaw: Record<string, unknown>[] = [];
+
+  for (let i = 0; i < topicIds.length; i += chunkSize) {
+    const chunk = topicIds.slice(i, i + chunkSize);
+    if (chunk.length > 0) {
+      const { data: tRows } = await supabase.from('topics').select('id, name').in('id', chunk);
+      if (tRows) {
+        topicRowsRaw.push(...(tRows as Record<string, unknown>[]));
+      }
+    }
+  }
+
+  const topicMap = new Map(topicRowsRaw.map((t) => [t.id as string, t.name as string]));
+
+  const promptMap = new Map(
+    promptRowsRaw.map((p) => [
+      p.id as string,
+      {
+        text: p.text as string,
+        category: p.category as string | null,
+        topicId: p.topic_id as string | null,
+      },
+    ]),
+  );
+
+  const results = allRows.map((r) => {
+    const pm = promptMap.get(r.prompt_id as string);
+    return {
+      ...mapResultRow(r),
+      promptText: (pm?.text as string) ?? '',
+      promptCategory: (pm?.category as string | null) ?? undefined,
+      topicId: (pm?.topicId as string | null) ?? undefined,
+      topicName: pm?.topicId
+        ? (topicMap.get(pm.topicId) ?? (pm?.category as string | null) ?? undefined)
+        : ((pm?.category as string | null) ?? undefined),
+    };
+  });
+
+  return { results, isCapped };
+}
+
+/**
+ * Fetch a single prompt result by its ID, joining prompt text.
+ */
+export async function getPromptResultById(resultId: string): Promise<PromptResultWithText | null> {
+  const supabase = await dbClient();
+
+  // #155 — Insights detail view; chatgpt-shopping is excluded here for the
+  // same reason the aggregates exclude it. Shopping rows are shown by the
+  // Shopping dashboard, not Insights.
+  const { data, error } = await supabase
+    .from('prompt_results')
+    .select('*')
+    .eq('id', resultId)
+    .neq('platform', 'chatgpt-shopping')
+    .single();
+
+  if (error || !data) return null;
+
+  const row = data as Record<string, unknown>;
+  const { data: promptData } = await supabase
+    .from('prompts')
+    .select('text, category, topic_id')
+    .eq('id', row.prompt_id as string)
+    .single();
+
+  const prompt = promptData as unknown as Record<string, unknown> | null;
+
+  let topicName: string | undefined;
+  if (prompt?.topic_id) {
+    const { data: topic } = await supabase
+      .from('topics')
+      .select('name')
+      .eq('id', prompt.topic_id as string)
+      .single();
+    topicName = (topic?.name as string) ?? undefined;
+  }
+  if (!topicName && prompt?.category) {
+    topicName = prompt.category as string;
+  }
+
+  return {
+    ...mapResultRow(row),
+    promptText: (prompt?.text as string) ?? '',
+    promptCategory: (prompt?.category as string | null) ?? undefined,
+    topicId: (prompt?.topic_id as string | null) ?? undefined,
+    topicName,
+  };
+}
+
+/**
+ * Fetch one prompt and its recent tracking results for the prompt detail page.
+ */
+export async function getPromptDetail(
+  promptId: string,
+  opts?: { limit?: number; dateFrom?: string; dateTo?: string },
+): Promise<PromptDetailData | null> {
+  const supabase = await dbClient();
+
+  const { data: promptData, error: promptError } = await supabase
+    .from('prompts')
+    .select('id, prompt_set_id, text, category, topic_id, is_active, created_at')
+    .eq('id', promptId)
+    .single();
+
+  if (promptError || !promptData) return null;
+
+  const prompt = promptData as unknown as Record<string, unknown>;
+  const promptSetId = prompt.prompt_set_id as string;
+
+  const { data: promptSetData } = await supabase
+    .from('prompt_sets')
+    .select('brand_id')
+    .eq('id', promptSetId)
+    .single();
+
+  const brandId = (promptSetData?.brand_id as string | undefined) ?? '';
+
+  // Brand + competitor domains feed classifyDomain, same as the citations page.
+  // The extra query pins lastCheckedAt to the prompt's true latest run so the
+  // "Last run" badge doesn't move (or empty out) when a date window is applied.
+  const [{ data: brandDomainRows }, { data: competitorRows }, { data: lastRunRows }] =
+    await Promise.all([
+      supabase.from('brand_domains').select('domain').eq('brand_id', brandId),
+      supabase.from('competitors').select('domain').eq('brand_id', brandId),
+      supabase
+        .from('prompt_results')
+        .select('created_at')
+        .eq('prompt_id', promptId)
+        .neq('platform', 'chatgpt-shopping')
+        .order('created_at', { ascending: false })
+        .limit(1),
+    ]);
+  const lastCheckedAt = (lastRunRows?.[0]?.created_at as string | undefined) ?? null;
+  const classifyCtx = {
+    brandDomains: (brandDomainRows ?? [])
+      .map((r) => normalizeDomain((r as { domain: string }).domain))
+      .filter(Boolean),
+    competitorDomains: (competitorRows ?? [])
+      .map((r) => normalizeDomain((r as { domain: string }).domain))
+      .filter(Boolean),
+  };
+
+  let topicName: string | undefined;
+  if (prompt.topic_id) {
+    const { data: topic } = await supabase
+      .from('topics')
+      .select('name')
+      .eq('id', prompt.topic_id as string)
+      .single();
+    topicName = (topic?.name as string) ?? undefined;
+  }
+  if (!topicName && prompt.category) {
+    topicName = prompt.category as string;
+  }
+
+  // #155 — same isolation rule as the other aggregating queries here.
+  let resultQuery = supabase
+    .from('prompt_results')
+    .select('*')
+    .eq('prompt_id', promptId)
+    .neq('platform', 'chatgpt-shopping');
+  if (opts?.dateFrom) resultQuery = resultQuery.gte('created_at', opts.dateFrom);
+  const expandedDateTo = expandDateToEndOfDay(opts?.dateTo);
+  if (expandedDateTo) resultQuery = resultQuery.lte('created_at', expandedDateTo);
+  const { data: resultRows, error: resultError } = await resultQuery
+    .order('created_at', { ascending: false })
+    .limit(opts?.limit ?? 500);
+
+  if (resultError) throw new Error(resultError.message);
+
+  const rows = (resultRows ?? []) as unknown as Record<string, unknown>[];
+  const results: PromptResultWithText[] = rows.map((row) => ({
+    ...mapResultRow(row),
+    promptText: prompt.text as string,
+    promptCategory: (prompt.category as string | null) ?? undefined,
+    topicId: (prompt.topic_id as string | null) ?? undefined,
+    topicName,
+  }));
+
+  const totalResults = results.length;
+  const avgVisibilityScore =
+    totalResults > 0
+      ? Math.round(results.reduce((sum, row) => sum + row.visibilityScore, 0) / totalResults)
+      : 0;
+  // Prompt-level Visibility Rate — same run-visibility rule as the All
+  // Prompts column and the Insights headline (mention or citation > 0).
+  const visibleResults = results.filter(
+    (row) => row.mentionCount > 0 || row.citationCount > 0,
+  ).length;
+  const visibilityRate =
+    totalResults > 0 ? Math.round((visibleResults / totalResults) * 1000) / 10 : 0;
+
+  // AI Visibility Score over the same answer set — identical blend to the
+  // All Prompts column and the Insights headline.
+  const mentionAnswers = results.filter((row) => row.mentionCount > 0).length;
+  const citationAnswers = results.filter((row) => row.citationCount > 0).length;
+  const positionValues = rows
+    .map((row) => row.mention_position as number | null)
+    .filter((pos): pos is number => pos !== null && pos !== undefined && pos > 0);
+  const positionFactor =
+    positionValues.length > 0
+      ? positionValues.reduce((sum, pos) => sum + 1 / pos, 0) / positionValues.length
+      : null;
+  const score = computeAiVisibilityScore({
+    answers: totalResults,
+    mentionAnswers,
+    citationAnswers,
+    positionFactor,
+  });
+
+  // Aggregate citations by domain — same shape and rounding as getCitationsOverview,
+  // but scoped to this prompt's already-loaded results.
+  interface SourceAgg {
+    domain: string;
+    category: SourceCategory;
+    totalCitations: number;
+    resultsCiting: Set<string>;
+    models: Set<string>;
+  }
+  interface UrlAgg extends SourceAgg {
+    url: string;
+    title: string;
+  }
+  const sourceMap = new Map<string, SourceAgg>();
+  const urlMap = new Map<string, UrlAgg>();
+  for (const result of results) {
+    const modelKey = result.modelUsed || result.platform || '';
+    for (const cite of result.citations) {
+      const host = extractHostname(cite.url);
+      if (!host) continue;
+      const category = sourceMap.get(host)?.category ?? classifyDomain(host, classifyCtx);
+
+      const agg = sourceMap.get(host) ?? {
+        domain: host,
+        category,
+        totalCitations: 0,
+        resultsCiting: new Set<string>(),
+        models: new Set<string>(),
+      };
+      agg.totalCitations += 1;
+      agg.resultsCiting.add(result.id);
+      if (modelKey) agg.models.add(modelKey);
+      sourceMap.set(host, agg);
+
+      // URL aggregation uses the same host-aware rule as getCitationsOverview.
+      const normalizedUrl = normalizeCitationUrl(cite.url);
+      const urlAgg = urlMap.get(normalizedUrl) ?? {
+        url: normalizedUrl,
+        domain: host,
+        category,
+        title: cite.title || '',
+        totalCitations: 0,
+        resultsCiting: new Set<string>(),
+        models: new Set<string>(),
+      };
+      urlAgg.totalCitations += 1;
+      urlAgg.resultsCiting.add(result.id);
+      if (modelKey) urlAgg.models.add(modelKey);
+      if (!urlAgg.title && cite.title) urlAgg.title = cite.title;
+      urlMap.set(normalizedUrl, urlAgg);
+    }
+  }
+  const usagePctOf = (resultsCiting: number) =>
+    totalResults > 0 ? Math.round((resultsCiting / totalResults) * 1000) / 10 : 0;
+  const topSources: PromptTopSource[] = Array.from(sourceMap.values())
+    .map((agg) => ({
+      domain: agg.domain,
+      category: agg.category,
+      models: Array.from(agg.models).sort(),
+      totalCitations: agg.totalCitations,
+      resultsCiting: agg.resultsCiting.size,
+      usagePct: usagePctOf(agg.resultsCiting.size),
+    }))
+    .sort((a, b) => b.totalCitations - a.totalCitations || a.domain.localeCompare(b.domain));
+  const topSourceUrls: PromptTopSourceUrl[] = Array.from(urlMap.values())
+    .map((agg) => ({
+      url: agg.url,
+      domain: agg.domain,
+      category: agg.category,
+      title: agg.title,
+      models: Array.from(agg.models).sort(),
+      totalCitations: agg.totalCitations,
+      resultsCiting: agg.resultsCiting.size,
+      usagePct: usagePctOf(agg.resultsCiting.size),
+    }))
+    .sort((a, b) => b.totalCitations - a.totalCitations || a.url.localeCompare(b.url));
+
+  return {
+    prompt: {
+      id: prompt.id as string,
+      brandId,
+      text: prompt.text as string,
+      category: (prompt.category as string | null) ?? undefined,
+      topicId: (prompt.topic_id as string | null) ?? undefined,
+      topicName,
+      isActive: Boolean(prompt.is_active),
+      createdAt: prompt.created_at as string,
+    },
+    summary: {
+      avgVisibilityScore,
+      visibilityRate,
+      visibleResults,
+      score,
+      mentionAnswers,
+      citationAnswers,
+      positionFactor,
+      totalMentions: results.reduce((sum, row) => sum + row.mentionCount, 0),
+      totalCitations: results.reduce((sum, row) => sum + row.citationCount, 0),
+      totalResults,
+      lastCheckedAt,
+    },
+    results,
+    topSources,
+    topSourceUrls,
+  };
+}
+
+/**
+ * Compute aggregated insights for a brand with proper date filtering.
+ */
+export async function getInsightsSummary(
+  brandId: string,
+  opts?: {
+    model?: string;
+    region?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    topicId?: string;
+    days?: DayWindow;
+  },
+): Promise<InsightsSummary> {
+  const supabase = await dbClient();
+  const p_models = modelFilterArray(opts?.model);
+  const daily = dailyWindow(opts);
+
+  // Sums + counts come from Postgres in one round trip; we still do the
+  // final divide + round in JS so the displayed numbers track the old
+  // reducer math exactly (verified by the parity test in 00006).
+  const baseArgs = {
+    p_brand_id: brandId,
+    p_platform: undefined as string | undefined,
+    p_models,
+    p_region: opts?.region ?? undefined,
+    p_prompt_id: undefined as string | undefined,
+    p_topic_id: opts?.topicId ?? undefined,
+  };
+  const dailyArgs = {
+    p_brand_id: brandId,
+    p_platform: undefined as string | undefined,
+    p_models,
+    p_region: opts?.region ?? undefined,
+  };
+
+  const { data: curData, error } = daily
+    ? await supabase.rpc('insights_aggregates_daily', {
+        ...dailyArgs,
+        p_day_from: daily.dayFrom,
+        p_day_to: daily.dayTo,
+      })
+    : await supabase.rpc('insights_aggregates', {
+        ...baseArgs,
+        p_date_from: opts?.dateFrom ?? undefined,
+        p_date_to: expandDateToEndOfDay(opts?.dateTo) ?? undefined,
+      });
+  if (error) throw new Error(error.message);
+
+  const cur = curData as unknown as InsightsAggregates;
+
+  if (cur.total_results === 0) {
+    return {
+      avgVisibilityScore: 0,
+      totalMentions: 0,
+      totalCitations: 0,
+      positiveSentimentPct: 0,
+      totalResults: 0,
+      lastCheckedAt: null,
+      platformBreakdown: [],
+      visibilityChange: null,
+      mentionsChange: null,
+      citationsChange: null,
+      prevMentions: null,
+      prevCitations: null,
+      sentimentChange: null,
+    };
+  }
+
+  const totalResults = cur.total_results;
+  // Average visibility across ALL runs (brand-mentioned or not) — the intended
+  // "absolute visibility" metric. Keep one decimal instead of rounding to a
+  // whole number: a brand that appears in a small fraction of answers can have
+  // a genuine sub-1 average (e.g. 0.4), and integer rounding collapsed that to
+  // a flat "0" that read like a broken metric next to non-zero mentions.
+  const avgVisibilityScore = roundTo1(cur.sum_visibility / totalResults);
+  const totalMentions = cur.total_mentions;
+  const totalCitations = cur.total_citations;
+  // Denominator is answers that mention/cite the brand, not all results —
+  // sentiment analysis is skipped entirely for brand-absent answers, so
+  // dividing by totalResults dilutes the score with rows that can never
+  // be positive (#508).
+  const positiveSentimentPct =
+    cur.mentioning_results > 0
+      ? Math.round((cur.positive_count / cur.mentioning_results) * 100)
+      : 0;
+  const lastCheckedAt = cur.last_checked_at;
+
+  const platformBreakdown = cur.by_model.map((m) => ({
+    platform: m.model_used,
+    avgScore: m.result_count > 0 ? Math.round(m.sum_visibility / m.result_count) : 0,
+    resultCount: m.result_count,
+  }));
+
+  // --- Previous period comparison ---
+  let visibilityChange: number | null = null;
+  let mentionsChange: number | null = null;
+  let citationsChange: number | null = null;
+  let prevMentions: number | null = null;
+  let prevCitations: number | null = null;
+  let sentimentChange: number | null = null;
+
+  {
+    let currentFrom: Date;
+    let currentTo: Date;
+
+    if (opts?.dateFrom) {
+      currentFrom = new Date(opts.dateFrom);
+      currentTo = opts.dateTo ? new Date(opts.dateTo) : new Date();
+    } else {
+      currentTo = new Date();
+      currentFrom = new Date();
+      currentFrom.setDate(currentFrom.getDate() - 7);
+    }
+
+    const duration = currentTo.getTime() - currentFrom.getTime();
+    const prevFrom = new Date(currentFrom.getTime() - duration);
+    const deltaDays = daily ? deltaDayWindows(daily) : null;
+
+    // Current-window aggregate: when no dateFrom was passed, the top-level
+    // call above is unbounded — for the delta math we need the same
+    // explicit "last 7 days" window the JS code used so the comparison
+    // stays anchored to recent momentum.
+    const [curRes, prevRes] = await Promise.all([
+      deltaDays
+        ? supabase.rpc('insights_aggregates_daily', {
+            ...dailyArgs,
+            p_day_from: deltaDays.cur.dayFrom,
+            p_day_to: deltaDays.cur.dayTo,
+          })
+        : supabase.rpc('insights_aggregates', {
+            ...baseArgs,
+            p_date_from: opts?.dateFrom ?? currentFrom.toISOString(),
+            p_date_to: expandDateToEndOfDay(opts?.dateTo) ?? undefined,
+          }),
+      deltaDays
+        ? supabase.rpc('insights_aggregates_daily', {
+            ...dailyArgs,
+            p_day_from: deltaDays.prev.dayFrom,
+            p_day_to: deltaDays.prev.dayTo,
+          })
+        : supabase.rpc('insights_aggregates', {
+            ...baseArgs,
+            p_date_from: prevFrom.toISOString(),
+            p_date_to: currentFrom.toISOString(),
+          }),
+    ]);
+    // Surface RPC failures rather than silently emit null deltas — masking
+    // server-side errors here would hide real outages behind "no change."
+    if (curRes.error) throw new Error(curRes.error.message);
+    if (prevRes.error) throw new Error(prevRes.error.message);
+
+    const curWin = curRes.data as unknown as InsightsAggregates | null;
+    const prevWin = prevRes.data as unknown as InsightsAggregates | null;
+
+    if (curWin && prevWin && curWin.total_results > 0 && prevWin.total_results > 0) {
+      const curAvgVis = roundTo1(curWin.sum_visibility / curWin.total_results);
+      const curMentions = curWin.total_mentions;
+      const curCitations = curWin.total_citations;
+      const curSentimentPct =
+        curWin.mentioning_results > 0
+          ? Math.round((curWin.positive_count / curWin.mentioning_results) * 100)
+          : 0;
+
+      const prevAvgVis = roundTo1(prevWin.sum_visibility / prevWin.total_results);
+      prevMentions = prevWin.total_mentions;
+      prevCitations = prevWin.total_citations;
+      const prevSentimentPct =
+        prevWin.mentioning_results > 0
+          ? Math.round((prevWin.positive_count / prevWin.mentioning_results) * 100)
+          : 0;
+
+      visibilityChange = roundTo1(curAvgVis - prevAvgVis);
+      mentionsChange = percentageChange(curMentions, prevMentions);
+      citationsChange = percentageChange(curCitations, prevCitations);
+      sentimentChange = curSentimentPct - prevSentimentPct;
+    }
+  }
+
+  return {
+    avgVisibilityScore,
+    totalMentions,
+    totalCitations,
+    positiveSentimentPct,
+    totalResults,
+    lastCheckedAt,
+    platformBreakdown,
+    visibilityChange,
+    mentionsChange,
+    citationsChange,
+    prevMentions,
+    prevCitations,
+    sentimentChange,
+  };
+}
+
+/**
+ * Trigger a tracking check via the aeo-server API.
+ * Pass promptId to run a single prompt instead of all.
+ */
+export async function triggerTrackingCheck(
+  brandId: string,
+  opts?: { promptId?: string },
+): Promise<{ jobId: string }> {
+  const supabase = await dbClient();
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+
+  const serverUrl = API_BASE_URL;
+
+  const payload: Record<string, string> = { brandId };
+  if (opts?.promptId) payload.promptId = opts.promptId;
+
+  const res = await fetch(`${serverUrl}/api/tracking/check`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message || `Server error: ${res.status}`);
+  }
+
+  const data = await res.json();
+  return { jobId: data.jobId };
+}
+
+/**
+ * Submit a single freshly created prompt to the tracking pipeline.
+ *
+ * Deliberately scoped to ONE prompt id rather than the brand's whole
+ * unanalyzed set. Cloro delivers results asynchronously, so a prompt that is
+ * still in flight has no `prompt_results` rows yet and would be picked up —
+ * and paid for — a second time by the very next add. Passing only the id we
+ * just created keeps each prompt to exactly one submission.
+ *
+ * Never throws, and never surfaces a failure as an error: a prompt that can't
+ * be submitted right now (daily cap, cooldown, paused brand, no active
+ * subscription, server unreachable) is still saved, and the daily scheduled
+ * run picks it up. The boolean only decides which "prompt added" message the
+ * user sees.
+ */
+export async function analyzeNewPrompt(
+  brandId: string,
+  promptId: string,
+): Promise<{ started: boolean }> {
+  const supabase = await dbClient();
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) return { started: false };
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/tracking/analyze-new`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ brandId, promptIds: [promptId] }),
+    });
+
+    if (!res.ok) {
+      // 402 (no subscription), 409 (paused brand) and 429 (daily cap or
+      // cooldown) are expected states rather than faults — stay quiet about
+      // them. Anything else is worth a server-side log.
+      if (res.status !== 402 && res.status !== 409 && res.status !== 429) {
+        console.error('Failed to submit new prompt for analysis', res.status);
+      }
+      return { started: false };
+    }
+
+    const body: { jobId?: string } = await res.json().catch(() => ({}));
+    return { started: Boolean(body.jobId) };
+  } catch (err) {
+    console.error('Failed to submit new prompt for analysis', err);
+    return { started: false };
+  }
+}
+
+export interface TrackingJobStatus {
+  status: 'waiting' | 'active' | 'completed' | 'failed' | 'delayed' | 'not_found';
+  progress: {
+    current: number;
+    total: number;
+    promptText?: string;
+    model?: string;
+    region?: string;
+    platform?: string;
+  } | null;
+  result: { resultCount: number } | null;
+  failedReason: string | null;
+}
+
+/**
+ * Poll a tracking job's status from the aeo-server.
+ */
+export async function getJobStatus(jobId: string): Promise<TrackingJobStatus> {
+  const supabase = await dbClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+
+  const serverUrl = API_BASE_URL;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+
+  try {
+    const res = await fetch(`${serverUrl}/api/tracking/job/${jobId}`, {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      return {
+        status: 'not_found',
+        progress: null,
+        result: null,
+        failedReason: null,
+      };
+    }
+
+    const data = await res.json();
+    return {
+      status: data.status ?? 'not_found',
+      progress:
+        data.progress && typeof data.progress === 'object' && data.progress.total
+          ? data.progress
+          : null,
+      result: data.result ?? null,
+      failedReason: data.failedReason ?? null,
+    };
+  } catch {
+    return {
+      status: 'not_found',
+      progress: null,
+      result: null,
+      failedReason: null,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Cancel/stop an active tracking job.
+ */
+export async function cancelTrackingJob(jobId: string): Promise<void> {
+  const supabase = await dbClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+
+  const serverUrl = API_BASE_URL;
+
+  await fetch(`${serverUrl}/api/tracking/job/${jobId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  });
+}
+
+export interface PromptVisibilitySummary {
+  avgVisibility: number;
+  /** Average score across visible runs only (null when never visible). */
+  avgVisibilityVisible: number | null;
+  totalMentions: number;
+  totalCitations: number;
+  runs: number;
+  /** Runs with >= 1 brand mention/citation — numerator of the prompt-level rate. */
+  visibleRuns: number;
+  /** visibleRuns / runs as a percentage, one decimal (coverage, secondary). */
+  visibilityRate: number;
+  /** AI Visibility Score (0-100) over this prompt's answers; null when no runs. */
+  score: number | null;
+  /** Answers mentioning the brand (score component). */
+  mentionAnswers: number;
+  /** Answers citing the brand's domain (score component). */
+  citationAnswers: number;
+  /** Mean of 1/position over mentioning answers; null when never mentioned. */
+  positionFactor: number | null;
+  lastRunAt: string;
+}
+
+/**
+ * Aggregate visibility + mention stats per prompt for a brand, over the
+ * last N days (default 30). Used by the All Prompts tab to show a quick
+ * health column next to each prompt.
+ *
+ * `region` scopes the aggregate to one tracked location (#691). Without it
+ * a multi-location prompt's figures are the blend of everywhere it runs,
+ * which hides exactly what tracking several locations was meant to reveal —
+ * a prompt can be strong at home and invisible abroad.
+ *
+ * Returns a map keyed by prompt_id. Prompts without any runs in the window
+ * simply won't appear in the map (callers should render "—").
+ */
+export async function getPromptVisibilitySummaries(
+  brandId: string,
+  opts?: { days?: number; from?: string; to?: string; region?: string },
+): Promise<Record<string, PromptVisibilitySummary>> {
+  const supabase = await dbClient();
+  // `from`/`to` win when given (the custom range, #713); otherwise the day
+  // count keeps every existing caller on its previous behaviour.
+  const days = opts?.days ?? 30;
+  const since = opts?.from ?? new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  // One GROUP BY in Postgres (migration 00025) instead of pulling the raw
+  // result window into JS: the old un-paginated select silently capped at
+  // 1000 rows (wrong health columns on busy brands — the #430/#464 defect
+  // family) and its transfer cost slowed the Prompts page's first load.
+  // The RPC excludes chatgpt-shopping (#155) like every analytical surface.
+  const { data, error } = await supabase.rpc('prompt_visibility_summaries', {
+    p_brand_id: brandId,
+    p_date_from: since,
+    p_date_to: opts?.to ?? undefined,
+    // One tracked location, or every location blended when absent (#691).
+    p_region: opts?.region ?? undefined,
+  });
+
+  if (error) throw new Error(error.message);
+
+  const result: Record<string, PromptVisibilitySummary> = {};
+  for (const row of data ?? []) {
+    const runs = Number(row.runs ?? 0);
+    const visibleRuns = Number(row.visible_runs ?? 0);
+    const mentionAnswers = Number(row.mention_answers ?? 0);
+    const citationAnswers = Number(row.citation_answers ?? 0);
+    const positionFactor = row.position_factor ?? null;
+    result[row.prompt_id] = {
+      avgVisibility: row.avg_visibility ?? 0,
+      avgVisibilityVisible: row.avg_visibility_visible ?? null,
+      totalMentions: Number(row.total_mentions ?? 0),
+      totalCitations: Number(row.total_citations ?? 0),
+      runs,
+      visibleRuns,
+      visibilityRate: runs > 0 ? Math.round((visibleRuns / runs) * 1000) / 10 : 0,
+      score: computeAiVisibilityScore({
+        answers: runs,
+        mentionAnswers,
+        citationAnswers,
+        positionFactor,
+      }),
+      mentionAnswers,
+      citationAnswers,
+      positionFactor,
+      lastRunAt: row.last_run_at,
+    };
+  }
+  return result;
+}
+
+/**
+ * Fetch active prompts for a brand (for the prompt selector).
+ */
+export async function getBrandPrompts(
+  brandId: string,
+): Promise<{ id: string; text: string; category?: string; platforms: string[] }[]> {
+  const supabase = await dbClient();
+
+  const { data: promptSets } = await supabase
+    .from('prompt_sets')
+    .select('id')
+    .eq('brand_id', brandId);
+
+  if (!promptSets || promptSets.length === 0) return [];
+
+  const setIds = promptSets.map((s) => s.id);
+
+  const { data: prompts, error } = await supabase
+    .from('prompts')
+    .select('id, text, category, platforms')
+    .in('prompt_set_id', setIds)
+    .eq('is_active', true)
+    .order('created_at', { ascending: false });
+
+  if (error) throw new Error(error.message);
+
+  return (prompts ?? []).map((p) => ({
+    id: p.id as string,
+    text: p.text as string,
+    category: (p.category as string | null) ?? undefined,
+    platforms: (p.platforms as string[]) ?? [],
+  }));
+}
+
+/** Raw shape of the ai_visibility_aggregates RPC payload (00040). */
+interface AiVisibilityAggregatesRow {
+  answers: number;
+  mention_answers: number;
+  citation_answers: number;
+  position_factor: number | null;
+  by_competitor: {
+    competitor_id: string;
+    name: string | null;
+    mention_answers: number;
+    citation_answers: number;
+    position_factor: number | null;
+  }[];
+}
+
+interface AiVisibilityWindow {
+  answers: number;
+  brandScore: number | null;
+  brandComponents: {
+    mentionAnswers: number;
+    citationAnswers: number;
+    positionFactor: number | null;
+  };
+  compScore: Map<string, number | null>;
+  compComponents: Map<
+    string,
+    { mentionAnswers: number; citationAnswers: number; positionFactor: number | null }
+  >;
+}
+
+/**
+ * Fold an ai_visibility_aggregates payload into per-entity scores. Every
+ * entity divides by the same answer count (the brand's filtered answers),
+ * so brand and competitor scores are directly comparable.
+ */
+function foldAiVisibility(raw: unknown): AiVisibilityWindow {
+  const row = (raw ?? {}) as AiVisibilityAggregatesRow;
+  const answers = Number(row.answers ?? 0);
+  const brandComponents = {
+    mentionAnswers: Number(row.mention_answers ?? 0),
+    citationAnswers: Number(row.citation_answers ?? 0),
+    positionFactor: row.position_factor === null ? null : Number(row.position_factor),
+  };
+  const compScore = new Map<string, number | null>();
+  const compComponents = new Map<
+    string,
+    { mentionAnswers: number; citationAnswers: number; positionFactor: number | null }
+  >();
+  for (const c of row.by_competitor ?? []) {
+    const components = {
+      mentionAnswers: Number(c.mention_answers ?? 0),
+      citationAnswers: Number(c.citation_answers ?? 0),
+      positionFactor: c.position_factor === null ? null : Number(c.position_factor),
+    };
+    compComponents.set(c.competitor_id, components);
+    compScore.set(c.competitor_id, computeAiVisibilityScore({ answers, ...components }));
+  }
+  return {
+    answers,
+    brandScore: computeAiVisibilityScore({ answers, ...brandComponents }),
+    brandComponents,
+    compScore,
+    compComponents,
+  };
+}
+
+export interface CompetitorComparisonEntry {
+  name: string;
+  avgVisibilityScore: number;
+  /**
+   * Prompt-level visibility rate (%): distinct prompts this entity appeared
+   * in ÷ distinct prompts that produced results in the window. Same
+   * denominator for the brand and every competitor — the leaderboard metric.
+   */
+  visibilityRate: number;
+  /** Distinct prompts this entity appeared in (the rate's numerator). */
+  visiblePrompts: number;
+  /** Distinct prompts that produced results in the window (shared denominator). */
+  promptCount: number;
+  /**
+   * Point change of the visibility rate versus the previous comparable
+   * window (e.g. last 7 days vs the 7 days before that).
+   * `null` when there is no comparable previous-period value.
+   */
+  change: number | null;
+  /**
+   * AI Visibility Score (0-100, one decimal): 0.6×mention rate +
+   * 0.25×citation rate + 0.15×position factor, all over the brand's
+   * filtered answers (shared denominator). Null when the window is empty.
+   */
+  score: number | null;
+  /** Score point change vs the previous comparable window; null without one. */
+  scoreChange: number | null;
+  /** Answers naming this entity (numerator of the mention component). */
+  mentionAnswers: number;
+  /** Answers citing this entity's own domain. */
+  citationAnswers: number;
+  /** Mean of 1/position over answers naming the entity; null when never named. */
+  positionFactor: number | null;
+  totalMentions: number;
+  totalCitations: number;
+  resultCount: number;
+  isOwnBrand: boolean;
+}
+
+export interface ProviderComparisonRow {
+  provider: string;
+  [brandName: string]: string | number;
+}
+
+export interface CompetitorComparisonData {
+  brands: CompetitorComparisonEntry[];
+  providerRows: ProviderComparisonRow[];
+}
+
+const MODEL_TO_PROVIDER: Record<string, string> = {
+  'gpt-5-chat-latest': 'ChatGPT',
+  'gpt-5-mini': 'ChatGPT',
+  'gpt-4o': 'ChatGPT',
+  'claude-sonnet-5': 'Claude',
+  'claude-sonnet-4-6': 'Claude',
+  'claude-opus-4-6': 'Claude',
+  'gemini-2.5-pro': 'Gemini',
+  'gemini-2.5-flash': 'Gemini',
+};
+
+const SCRAPER_PROVIDER: Record<string, string> = {
+  chatgpt: 'ChatGPT',
+  'chatgpt-web': 'ChatGPT',
+  'google-aio': 'Google AI Overview',
+  'google-aimode': 'Google AI Mode',
+  'copilot-web': 'Microsoft Copilot',
+  'grok-web': 'Grok',
+  'perplexity-web': 'Perplexity',
+  'gemini-web': 'Gemini',
+};
+
+function resolveProvider(modelUsed: string | null | undefined, platform?: string | null): string {
+  if (platform && SCRAPER_PROVIDER[platform]) return SCRAPER_PROVIDER[platform];
+  if (!modelUsed) return 'Unknown';
+  const mapped = MODEL_TO_PROVIDER[modelUsed];
+  if (mapped) return mapped;
+  if (modelUsed.startsWith('gpt-')) return 'ChatGPT';
+  if (modelUsed.startsWith('claude-')) return 'Claude';
+  if (modelUsed.startsWith('gemini-')) return 'Gemini';
+  if (modelUsed.startsWith('sonar')) return 'Perplexity';
+  if (modelUsed.startsWith('grok')) return 'Grok';
+  return modelUsed;
+}
+
+/**
+ * Aggregate competitor comparison data from prompt results.
+ * Returns both flat brand scores and per-provider breakdown.
+ *
+ * Server-side aggregation lives in the competitor_aggregates RPC
+ * (supabase/migrations/00006). This function only does the resolveProvider
+ * fold + final divide/round — the heavy `select(*) + reduce` loop is gone.
+ */
+export async function getCompetitorComparison(
+  brandId: string,
+  opts?: {
+    model?: string;
+    region?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    topicId?: string;
+    days?: DayWindow;
+  },
+): Promise<CompetitorComparisonData> {
+  const supabase = await dbClient();
+  const p_models = modelFilterArray(opts?.model);
+  const daily = dailyWindow(opts);
+
+  const baseArgs = {
+    p_brand_id: brandId,
+    p_platform: undefined as string | undefined,
+    p_models,
+    p_region: opts?.region ?? undefined,
+    p_prompt_id: undefined as string | undefined,
+    p_topic_id: opts?.topicId ?? undefined,
+  };
+  const dailyArgs = {
+    p_brand_id: brandId,
+    p_platform: undefined as string | undefined,
+    p_models,
+    p_region: opts?.region ?? undefined,
+  };
+
+  // The heaviest reads on the page: competitor_aggregates over the raw rows
+  // took 9.7s on the largest brand's all-time window — past the 8s statement
+  // timeout. The rollup variants answer the same payload from the daily
+  // tables (00066).
+  const compRpc = (win: { dayFrom?: string; dayTo?: string } | null, from?: string, to?: string) =>
+    win
+      ? supabase.rpc('competitor_aggregates_daily', {
+          ...dailyArgs,
+          p_day_from: win.dayFrom,
+          p_day_to: win.dayTo,
+        })
+      : supabase.rpc('competitor_aggregates', {
+          ...baseArgs,
+          p_date_from: from,
+          p_date_to: to,
+        });
+  const visRpc = (win: { dayFrom?: string; dayTo?: string } | null, from?: string, to?: string) =>
+    win
+      ? supabase.rpc('ai_visibility_aggregates_daily', {
+          ...dailyArgs,
+          p_day_from: win.dayFrom,
+          p_day_to: win.dayTo,
+        })
+      : supabase.rpc('ai_visibility_aggregates', {
+          ...baseArgs,
+          p_date_from: from,
+          p_date_to: to,
+        });
+
+  // Brand name + the displayed-period aggregates fire in parallel — all
+  // are needed before we can shape the response.
+  const [{ data: brand }, { data: aggDisplay, error: aggErr }, visDisplayRes] = await Promise.all([
+    supabase.from('brands').select('name').eq('id', brandId).single(),
+    compRpc(daily, opts?.dateFrom ?? undefined, expandDateToEndOfDay(opts?.dateTo) ?? undefined),
+    visRpc(daily, opts?.dateFrom ?? undefined, expandDateToEndOfDay(opts?.dateTo) ?? undefined),
+  ]);
+  if (aggErr) throw new Error(aggErr.message);
+  if (visDisplayRes.error) throw new Error(visDisplayRes.error.message);
+  const visDisplay = foldAiVisibility(visDisplayRes.data);
+
+  const agg = aggDisplay as unknown as CompetitorAggregatesRow;
+  if (agg.brand_row_count === 0) return { brands: [], providerRows: [] };
+
+  // --- Current vs previous period for change calculation ---
+  // The displayed avg/totals come from `agg` (respects the selected preset),
+  // but the ↑/↓ delta always compares a fixed "current" window to the window
+  // immediately before it so the arrow reflects recent momentum (mirrors
+  // getInsightsSummary's KPI change logic).
+  let currentFrom: Date;
+  let currentTo: Date;
+
+  if (opts?.dateFrom) {
+    currentFrom = new Date(opts.dateFrom);
+    currentTo = opts.dateTo ? new Date(opts.dateTo) : new Date();
+  } else {
+    currentTo = new Date();
+    currentFrom = new Date();
+    currentFrom.setDate(currentFrom.getDate() - 7);
+  }
+
+  const duration = currentTo.getTime() - currentFrom.getTime();
+  const prevFrom = new Date(currentFrom.getTime() - duration);
+  const deltaDays = daily ? deltaDayWindows(daily) : null;
+
+  const [curRes, prevRes, visPrevRes] = await Promise.all([
+    deltaDays
+      ? compRpc(deltaDays.cur)
+      : compRpc(
+          null,
+          opts?.dateFrom ?? currentFrom.toISOString(),
+          expandDateToEndOfDay(opts?.dateTo) ?? undefined,
+        ),
+    deltaDays
+      ? compRpc(deltaDays.prev)
+      : compRpc(null, prevFrom.toISOString(), currentFrom.toISOString()),
+    deltaDays
+      ? visRpc(deltaDays.prev)
+      : visRpc(null, prevFrom.toISOString(), currentFrom.toISOString()),
+  ]);
+  if (curRes.error) throw new Error(curRes.error.message);
+  if (prevRes.error) throw new Error(prevRes.error.message);
+  // Score delta compares the displayed window against the one immediately
+  // before it; a previous-window failure only costs the delta, not the page.
+  const visPrev = visPrevRes.error ? null : foldAiVisibility(visPrevRes.data);
+  const scoreDiff = (cur: number | null, prev: number | null | undefined): number | null => {
+    if (cur === null || prev === null || prev === undefined) return null;
+    return Math.round((cur - prev) * 10) / 10;
+  };
+
+  const curWin = curRes.data as unknown as CompetitorAggregatesRow | null;
+  const prevWin = prevRes.data as unknown as CompetitorAggregatesRow | null;
+
+  // The leaderboard metric is the prompt-level visibility rate: distinct
+  // prompts an entity appeared in ÷ distinct prompts that produced results.
+  // Same-denominator rule as before (#478) — the brand and every competitor
+  // divide by the same prompt count, so absence still costs; but a prompt
+  // counts once no matter how many platforms answered it, which keeps the
+  // number readable instead of the near-zero all-rows score average.
+  const rateOf = (visible: number, prompts: number): number | null =>
+    prompts > 0 ? Math.round((visible / prompts) * 1000) / 10 : null;
+
+  const curBrandRate = curWin
+    ? rateOf(curWin.brand_visible_prompts, curWin.brand_prompt_count)
+    : null;
+  const prevBrandRate = prevWin
+    ? rateOf(prevWin.brand_visible_prompts, prevWin.brand_prompt_count)
+    : null;
+
+  const curCompRate = new Map<string, number | null>();
+  if (curWin) {
+    for (const c of curWin.by_competitor) {
+      curCompRate.set(c.competitor_id, rateOf(c.visible_prompts, curWin.brand_prompt_count));
+    }
+  }
+  const prevCompRate = new Map<string, number | null>();
+  if (prevWin) {
+    for (const c of prevWin.by_competitor) {
+      prevCompRate.set(c.competitor_id, rateOf(c.visible_prompts, prevWin.brand_prompt_count));
+    }
+  }
+
+  const brandName = (brand?.name as string) ?? 'Your Brand';
+  const brandAvg = Math.round(agg.brand_sum_visibility / agg.brand_row_count);
+  const brandRate = rateOf(agg.brand_visible_prompts, agg.brand_prompt_count) ?? 0;
+
+  // Point change of the rate relative to the previous-period value.
+  // Null when no comparable previous value exists.
+  const rateDiff = (cur: number | null, prev: number | null): number | null => {
+    if (cur === null || prev === null) return null;
+    return Math.round((cur - prev) * 10) / 10;
+  };
+
+  // Falls back to the competitor id when the name is null/empty so two
+  // unnamed competitors don't collide under the same empty-string key in
+  // compByProvider below. Applied consistently to the entries[] name field
+  // so the providerRows column header matches the table row label.
+  const competitorDisplayName = (name: string | null | undefined, id: string): string =>
+    name && name.trim() !== '' ? name : id;
+
+  const entries: CompetitorComparisonEntry[] = [
+    {
+      name: brandName,
+      avgVisibilityScore: brandAvg,
+      visibilityRate: brandRate,
+      visiblePrompts: agg.brand_visible_prompts,
+      promptCount: agg.brand_prompt_count,
+      change: rateDiff(curBrandRate, prevBrandRate),
+      score: visDisplay.brandScore,
+      scoreChange: scoreDiff(visDisplay.brandScore, visPrev?.brandScore),
+      mentionAnswers: visDisplay.brandComponents.mentionAnswers,
+      citationAnswers: visDisplay.brandComponents.citationAnswers,
+      positionFactor: visDisplay.brandComponents.positionFactor,
+      totalMentions: agg.brand_total_mentions,
+      totalCitations: agg.brand_total_citations,
+      resultCount: agg.brand_row_count,
+      isOwnBrand: true,
+    },
+  ];
+
+  for (const c of agg.by_competitor) {
+    // Same-denominator rule as the window rates above (agg.brand_row_count
+    // is guaranteed > 0 by the early return).
+    const avg = Math.round(c.sum_visibility / agg.brand_row_count);
+    const compComponents = visDisplay.compComponents.get(c.competitor_id);
+    entries.push({
+      name: competitorDisplayName(c.name, c.competitor_id),
+      avgVisibilityScore: avg,
+      visibilityRate: rateOf(c.visible_prompts, agg.brand_prompt_count) ?? 0,
+      visiblePrompts: c.visible_prompts,
+      promptCount: agg.brand_prompt_count,
+      change: rateDiff(
+        curCompRate.get(c.competitor_id) ?? null,
+        prevCompRate.get(c.competitor_id) ?? null,
+      ),
+      score: visDisplay.compScore.get(c.competitor_id) ?? null,
+      scoreChange: scoreDiff(
+        visDisplay.compScore.get(c.competitor_id) ?? null,
+        visPrev?.compScore.get(c.competitor_id),
+      ),
+      mentionAnswers: compComponents?.mentionAnswers ?? 0,
+      citationAnswers: compComponents?.citationAnswers ?? 0,
+      positionFactor: compComponents?.positionFactor ?? null,
+      totalMentions: c.total_mentions,
+      totalCitations: c.total_citations,
+      resultCount: c.row_count,
+      isOwnBrand: false,
+    });
+  }
+
+  entries.sort((a, b) => (b.score ?? -1) - (a.score ?? -1) || b.totalMentions - a.totalMentions);
+
+  // --- Per-provider breakdown ---
+  // resolveProvider stays in JS so we don't keep a SQL copy of the mapping
+  // table in sync — fold the (model_used, platform) groups into provider
+  // buckets here. The chart plots the same prompt-level rate as the
+  // leaderboard; summing DISTINCT counts across two engines of one provider
+  // counts a shared prompt once per engine in numerator and denominator
+  // alike, so the folded rate stays unbiased.
+  type Agg = { visiblePrompts: number; promptCount: number };
+  const brandByProvider = new Map<string, Agg>();
+  for (const bp of agg.by_brand_provider) {
+    const provider = resolveProvider(bp.model_used, bp.platform);
+    const ex = brandByProvider.get(provider) ?? { visiblePrompts: 0, promptCount: 0 };
+    ex.visiblePrompts += bp.visible_prompts;
+    ex.promptCount += bp.prompt_count;
+    brandByProvider.set(provider, ex);
+  }
+
+  // compName -> provider -> visible prompt count. Keyed by the same display
+  // name used in entries[] above so the providerRows column headers line up
+  // with the table rows (empty/null names fall back to competitor_id). No
+  // denominator here — competitors divide by the brand's provider bucket.
+  const compByProvider = new Map<string, Map<string, number>>();
+  for (const cp of agg.by_competitor_provider) {
+    const provider = resolveProvider(cp.model_used, cp.platform);
+    const name = competitorDisplayName(cp.competitor_name, cp.competitor_id);
+    if (!compByProvider.has(name)) compByProvider.set(name, new Map());
+    const pm = compByProvider.get(name)!;
+    pm.set(provider, (pm.get(provider) ?? 0) + cp.visible_prompts);
+  }
+
+  const allProviders = new Set<string>();
+  for (const p of brandByProvider.keys()) allProviders.add(p);
+  for (const pm of compByProvider.values()) {
+    for (const p of pm.keys()) allProviders.add(p);
+  }
+
+  const providerRows: ProviderComparisonRow[] = [...allProviders].sort().map((provider) => {
+    const row: ProviderComparisonRow = { provider };
+    const bp = brandByProvider.get(provider);
+    // Same-denominator rule: everyone divides by the brand bucket's prompt
+    // count (which spans every filtered prompt for the provider), not their
+    // own appearance count. Competitor rows are a subset of the brand's, so
+    // bp always exists when a competitor has data for the provider.
+    const denom = bp?.promptCount ?? 0;
+    row[brandName] = bp && denom > 0 ? Math.round((bp.visiblePrompts / denom) * 1000) / 10 : 0;
+    for (const [compName, pm] of compByProvider) {
+      const visible = pm.get(provider) ?? 0;
+      row[compName] = denom > 0 ? Math.round((visible / denom) * 1000) / 10 : 0;
+    }
+    return row;
+  });
+
+  return { brands: entries, providerRows };
+}
+
+// ─── Share of Voice ─────────────────────────────────────────────────────────
+
+export interface SoVByPlatform {
+  provider: string;
+  brandMentions: number;
+  competitorMentions: number;
+  sov: number;
+}
+
+export interface SoVTrendPoint {
+  date: string;
+  brandSov: number;
+  competitorSov: number;
+}
+
+export interface ShareOfVoiceData {
+  overallSov: number;
+  overallSovChange: number | null;
+  byPlatform: SoVByPlatform[];
+  trend: SoVTrendPoint[];
+}
+
+export async function getShareOfVoiceData(
+  brandId: string,
+  opts?: {
+    model?: string;
+    region?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    topicId?: string;
+    days?: DayWindow;
+  },
+): Promise<ShareOfVoiceData> {
+  const supabase = await dbClient();
+  const p_models = modelFilterArray(opts?.model);
+  const daily = dailyWindow(opts);
+
+  const baseArgs = {
+    p_brand_id: brandId,
+    p_platform: undefined as string | undefined,
+    p_models,
+    p_region: opts?.region ?? undefined,
+    p_prompt_id: undefined as string | undefined,
+    p_topic_id: opts?.topicId ?? undefined,
+  };
+  const sovRpc = (win: { dayFrom?: string; dayTo?: string } | null, from?: string, to?: string) =>
+    win
+      ? supabase.rpc('share_of_voice_aggregates_daily', {
+          p_brand_id: brandId,
+          p_platform: undefined as string | undefined,
+          p_models,
+          p_region: opts?.region ?? undefined,
+          p_day_from: win.dayFrom,
+          p_day_to: win.dayTo,
+        })
+      : supabase.rpc('share_of_voice_aggregates', {
+          ...baseArgs,
+          p_date_from: from,
+          p_date_to: to,
+        });
+
+  // Current-period aggregate + previous-period aggregate run in parallel —
+  // both server-side, no row transfer or JS reduce. The previous-period
+  // window always anchors to "last 7 days" when the caller hasn't picked an
+  // explicit dateFrom (matches the original delta logic for SoV).
+  let currentFrom: Date;
+  let currentTo: Date;
+  if (opts?.dateFrom) {
+    currentFrom = new Date(opts.dateFrom);
+    currentTo = opts.dateTo ? new Date(opts.dateTo) : new Date();
+  } else {
+    currentTo = new Date();
+    currentFrom = new Date();
+    currentFrom.setDate(currentFrom.getDate() - 7);
+  }
+  const duration = currentTo.getTime() - currentFrom.getTime();
+  const prevFrom = new Date(currentFrom.getTime() - duration);
+  const deltaDays = daily ? deltaDayWindows(daily) : null;
+
+  const [{ data: curData, error: curErr }, { data: prevData, error: prevErr }] = await Promise.all([
+    daily
+      ? sovRpc(daily)
+      : sovRpc(null, opts?.dateFrom ?? undefined, expandDateToEndOfDay(opts?.dateTo) ?? undefined),
+    deltaDays
+      ? sovRpc(deltaDays.prev)
+      : sovRpc(null, prevFrom.toISOString(), currentFrom.toISOString()),
+  ]);
+  if (curErr) throw new Error(curErr.message);
+  if (prevErr) throw new Error(prevErr.message);
+
+  const cur = curData as unknown as ShareOfVoiceAggregatesRow;
+  const prev = prevData as unknown as ShareOfVoiceAggregatesRow | null;
+
+  const totalBrandMentions = Number(cur.total_brand_mentions);
+  const totalCompMentions = Number(cur.total_competitor_mentions);
+
+  if (totalBrandMentions === 0 && totalCompMentions === 0) {
+    return { overallSov: 0, overallSovChange: null, byPlatform: [], trend: [] };
+  }
+
+  const totalAll = totalBrandMentions + totalCompMentions;
+  const overallSov = totalAll > 0 ? Math.round((totalBrandMentions / totalAll) * 1000) / 10 : 0;
+
+  // --- By provider ---
+  // resolveProvider stays in JS so the SQL doesn't carry a duplicate of the
+  // model/platform → provider mapping table.
+  type ProviderAgg = { brandMentions: number; competitorMentions: number };
+  const providerMap = new Map<string, ProviderAgg>();
+  for (const bp of cur.by_platform) {
+    const provider = resolveProvider(bp.model_used, bp.platform);
+    const ex = providerMap.get(provider) ?? { brandMentions: 0, competitorMentions: 0 };
+    ex.brandMentions += Number(bp.brand_mentions);
+    ex.competitorMentions += Number(bp.competitor_mentions);
+    providerMap.set(provider, ex);
+  }
+
+  const byPlatform: SoVByPlatform[] = [...providerMap.entries()]
+    .map(([provider, agg]) => {
+      const total = agg.brandMentions + agg.competitorMentions;
+      return {
+        provider,
+        brandMentions: agg.brandMentions,
+        competitorMentions: agg.competitorMentions,
+        sov: total > 0 ? Math.round((agg.brandMentions / total) * 1000) / 10 : 0,
+      };
+    })
+    .sort((a, b) => b.sov - a.sov);
+
+  // --- Trend ---
+  // RPC already returns by_day ordered by date ascending, but be defensive.
+  const trend: SoVTrendPoint[] = [...cur.by_day]
+    .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0))
+    .map((d) => {
+      const brand = Number(d.brand_mentions);
+      const comp = Number(d.competitor_mentions);
+      const total = brand + comp;
+      const brandSov = total > 0 ? Math.round((brand / total) * 1000) / 10 : 0;
+      const competitorSov = total > 0 ? Math.round((comp / total) * 1000) / 10 : 0;
+      const dateObj = new Date(d.day + 'T00:00:00');
+      const label = dateObj.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+      });
+      return { date: label, brandSov, competitorSov };
+    });
+
+  // --- Previous period delta (overall SoV only) ---
+  let overallSovChange: number | null = null;
+  if (prev) {
+    const prevBrandM = Number(prev.total_brand_mentions);
+    const prevCompM = Number(prev.total_competitor_mentions);
+    if (prevBrandM + prevCompM > 0) {
+      const prevTotal = prevBrandM + prevCompM;
+      const prevSov = prevTotal > 0 ? Math.round((prevBrandM / prevTotal) * 1000) / 10 : 0;
+      overallSovChange = Math.round((overallSov - prevSov) * 10) / 10;
+    }
+  }
+
+  return { overallSov, overallSovChange, byPlatform, trend };
+}
+
+export interface VisibilityTrendPoint {
+  date: string;
+  score: number;
+  competitors: number | null;
+}
+
+/**
+ * Fetch daily visibility score trend for a brand (and avg competitor score).
+ * Queries ALL prompt_results (not deduplicated) to build a time-series.
+ */
+
+// ─── Visibility Rate trend (brand + each competitor) ────────────────────────
+
+export interface VisibilityRateTrendEntity {
+  /** 'you' for the own brand, competitor id otherwise. */
+  key: string;
+  name: string;
+  isOwnBrand: boolean;
+  /** Domain used for the favicon fallback at the line's end. */
+  domain: string | null;
+  /** Explicit logo (own brand only); falls back to the domain favicon. */
+  logoUrl: string | null;
+}
+
+export interface VisibilityRateTrendPoint {
+  /** Short label for the X axis, e.g. "Jul 28". */
+  date: string;
+  /** Per-entity rate for the day, keyed by entity key. 0 = tracked but not visible. */
+  values: Record<string, number>;
+}
+
+export interface VisibilityRateTrendSummary {
+  /** Overall rate for the charted window (distinct prompts, not a daily average). */
+  rate: number;
+  /** Rate over the equal-length window immediately before; null without data. */
+  prevRate: number | null;
+  /** rate − prevRate in points, one decimal; null when prevRate is null. */
+  change: number | null;
+  /** ISO bounds of the previous window, for the "vs <range>" label. */
+  prevFrom: string;
+  prevTo: string;
+}
+
+export interface VisibilityRateTrendData {
+  entities: VisibilityRateTrendEntity[];
+  points: VisibilityRateTrendPoint[];
+  summary: VisibilityRateTrendSummary;
+}
+
+interface VisibilityRateTrendRow {
+  day: string;
+  prompt_count: number;
+  visible_prompts: number;
+  answers: number;
+  mention_answers: number;
+  citation_answers: number;
+  position_factor: number | null;
+  position_n: number;
+  competitors: {
+    competitor_id: string;
+    visible_prompts: number;
+    mention_answers: number;
+    citation_answers: number;
+    position_factor: number | null;
+    position_n: number;
+  }[];
+}
+
+/**
+ * Daily Visibility Rate series for the brand and each live competitor
+ * (visibility_rate_trend RPC, migration 00039). Every entity divides by the
+ * brand's per-day prompt count — the shared-denominator rule from
+ * getCompetitorComparison — so the lines are directly comparable.
+ * Defaults to the last 7 days when no explicit range is given.
+ */
+export async function getVisibilityRateTrend(
+  brandId: string,
+  opts?: {
+    model?: string;
+    region?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    topicId?: string;
+    days?: DayWindow;
+  },
+): Promise<VisibilityRateTrendData> {
+  const supabase = await dbClient();
+  const daily = dailyWindow(opts);
+  // No explicit lower bound = the "All time" preset: the summary covers
+  // everything (matching the leaderboard) and the chart plots an expanding
+  // cumulative window instead of a fixed-length rolling one.
+  // undefined rather than null: these flow straight into RPC arguments, where
+  // an omitted key takes the function's own DEFAULT NULL. "All time" is the
+  // absence of a bound, and undefined is how that is spelled at this boundary.
+  const boundedFrom = opts?.dateFrom ?? undefined;
+  const dateTo = expandDateToEndOfDay(opts?.dateTo) ?? new Date().toISOString();
+
+  // Equal-length window immediately before, for the headline delta
+  // (undefined for all-time — there is no comparable previous window).
+  const windowMs = boundedFrom
+    ? new Date(dateTo).getTime() - new Date(boundedFrom).getTime()
+    : null;
+  const prevFrom =
+    boundedFrom && windowMs !== null
+      ? new Date(new Date(boundedFrom).getTime() - windowMs).toISOString()
+      : undefined;
+  const prevTo = boundedFrom;
+
+  const rateArgs = (from: string | undefined, to: string) => ({
+    p_brand_id: brandId,
+    p_platform: undefined as string | undefined,
+    p_models: modelFilterArray(opts?.model),
+    p_region: opts?.region ?? undefined,
+    p_date_from: from,
+    p_date_to: to,
+    p_topic_id: opts?.topicId ?? undefined,
+  });
+  const dayArgs = (dayFrom: string | undefined, dayTo: string | undefined) => ({
+    p_brand_id: brandId,
+    p_platform: undefined as string | undefined,
+    p_models: modelFilterArray(opts?.model),
+    p_region: opts?.region ?? undefined,
+    p_day_from: dayFrom,
+    p_day_to: dayTo,
+  });
+  // Day-window equivalents of the three timestamp windows above: display,
+  // warm-up-extended fetch range, and the previous window for the delta.
+  const deltaDays = daily?.dayFrom ? deltaDayWindows(daily) : null;
+
+  const [
+    { data: brand },
+    { data: brandDomains },
+    { data: competitors },
+    rpcRes,
+    visCurRes,
+    visPrevRes,
+  ] = await Promise.all([
+    supabase.from('brands').select('name, logo_url').eq('id', brandId).single(),
+    supabase.from('brand_domains').select('domain, is_primary').eq('brand_id', brandId),
+    supabase.from('competitors').select('id, name, domain').eq('brand_id', brandId),
+    // The chart plots a rolling window per day, so the earliest displayed
+    // days need trailing data from before the display range (all-time needs
+    // no warm-up — the window expands from the first row).
+    daily
+      ? supabase.rpc('visibility_rate_trend_daily', dayArgs(deltaDays?.prev.dayFrom, daily.dayTo))
+      : supabase.rpc('visibility_rate_trend', rateArgs(prevFrom, dateTo)),
+    daily
+      ? supabase.rpc('ai_visibility_aggregates_daily', dayArgs(daily.dayFrom, daily.dayTo))
+      : supabase.rpc('ai_visibility_aggregates', rateArgs(boundedFrom, dateTo)),
+    daily
+      ? deltaDays
+        ? supabase.rpc(
+            'ai_visibility_aggregates_daily',
+            dayArgs(deltaDays.prev.dayFrom, deltaDays.prev.dayTo),
+          )
+        : Promise.resolve({ data: null, error: new Error('no previous window') })
+      : prevFrom && prevTo
+        ? supabase.rpc('ai_visibility_aggregates', rateArgs(prevFrom, prevTo))
+        : Promise.resolve({ data: null, error: new Error('no previous window') }),
+  ]);
+  if (rpcRes.error) throw new Error(rpcRes.error.message);
+  if (visCurRes.error) throw new Error(visCurRes.error.message);
+
+  const rows = (rpcRes.data ?? []) as unknown as VisibilityRateTrendRow[];
+
+  const primaryDomain =
+    (brandDomains ?? []).find((d) => d.is_primary)?.domain ?? brandDomains?.[0]?.domain ?? null;
+
+  const entities: VisibilityRateTrendEntity[] = [
+    {
+      key: 'you',
+      name: brand?.name ?? 'You',
+      isOwnBrand: true,
+      domain: primaryDomain,
+      logoUrl: brand?.logo_url ?? null,
+    },
+    ...(competitors ?? []).map((c) => ({
+      key: c.id,
+      name: c.name,
+      isOwnBrand: false,
+      domain: c.domain || null,
+      logoUrl: null,
+    })),
+  ];
+
+  // Each day's point is the score over the TRAILING window of the selected
+  // length ending that day (rolling window). This makes the line's last
+  // point equal the headline card exactly — the chart's inside and outside
+  // can never disagree — and every earlier point answers "what would the
+  // headline have shown that day".
+  const windowDays = windowMs !== null ? Math.max(1, Math.round(windowMs / 86_400_000)) : null;
+  const dayMs = (day: string) => new Date(day + 'T00:00:00Z').getTime();
+  const displayFromMs = boundedFrom ? new Date(boundedFrom).getTime() : Number.NEGATIVE_INFINITY;
+
+  interface RollingSums {
+    answers: number;
+    mention: number;
+    citation: number;
+    posSum: number;
+    posN: number;
+  }
+  const emptySums = (): RollingSums => ({
+    answers: 0,
+    mention: 0,
+    citation: 0,
+    posSum: 0,
+    posN: 0,
+  });
+  const entityKeys = ['you', ...(competitors ?? []).map((c) => c.id)];
+  const sums = new Map<string, RollingSums>(entityKeys.map((k) => [k, emptySums()]));
+
+  const dayComponents = (row: VisibilityRateTrendRow, key: string): RollingSums => {
+    if (key === 'you') {
+      return {
+        answers: row.answers,
+        mention: row.mention_answers,
+        citation: row.citation_answers,
+        posSum: (row.position_factor ?? 0) * (row.position_n ?? 0),
+        posN: row.position_n ?? 0,
+      };
+    }
+    const entry = row.competitors.find((c) => c.competitor_id === key);
+    return {
+      answers: 0,
+      mention: entry?.mention_answers ?? 0,
+      citation: entry?.citation_answers ?? 0,
+      posSum: (entry?.position_factor ?? 0) * (entry?.position_n ?? 0),
+      posN: entry?.position_n ?? 0,
+    };
+  };
+  const apply = (key: string, comp: RollingSums, sign: 1 | -1) => {
+    const s = sums.get(key)!;
+    s.answers += sign * comp.answers;
+    s.mention += sign * comp.mention;
+    s.citation += sign * comp.citation;
+    s.posSum += sign * comp.posSum;
+    s.posN += sign * comp.posN;
+  };
+
+  const points: VisibilityRateTrendPoint[] = [];
+  let start = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    for (const key of entityKeys) apply(key, dayComponents(row, key), 1);
+    // Evict day-buckets that fell out of the trailing window (all-time
+    // keeps everything — the window expands cumulatively).
+    while (
+      windowDays !== null &&
+      dayMs(row.day) - dayMs(rows[start].day) >= windowDays * 86_400_000
+    ) {
+      for (const key of entityKeys) apply(key, dayComponents(rows[start], key), -1);
+      start++;
+    }
+    // Only emit points inside the display range; earlier rows exist purely
+    // to warm up the trailing window.
+    if (dayMs(row.day) + 86_400_000 <= displayFromMs) continue;
+
+    const brandSums = sums.get('you')!;
+    const values: Record<string, number> = {};
+    for (const key of entityKeys) {
+      const s = sums.get(key)!;
+      values[key] =
+        computeAiVisibilityScore({
+          answers: brandSums.answers,
+          mentionAnswers: s.mention,
+          citationAnswers: s.citation,
+          positionFactor: s.posN > 0 ? s.posSum / s.posN : null,
+        }) ?? 0;
+    }
+    points.push({
+      date: new Date(row.day + 'T00:00:00').toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+      }),
+      values,
+    });
+  }
+
+  // Headline: overall window score (components over the whole window — not
+  // an average of the daily points) plus the delta vs the previous
+  // equal-length window. Same RPC the leaderboard uses.
+  const visCur = foldAiVisibility(visCurRes.data);
+  const visPrev = visPrevRes.error ? null : foldAiVisibility(visPrevRes.data);
+  const headlineScore = visCur.brandScore ?? 0;
+  const prevScore = visPrev?.brandScore ?? null;
+
+  const summary: VisibilityRateTrendSummary = {
+    rate: headlineScore,
+    prevRate: prevScore,
+    change: prevScore === null ? null : Math.round((headlineScore - prevScore) * 10) / 10,
+    prevFrom: prevFrom ?? '',
+    prevTo: prevTo ?? '',
+  };
+
+  return { entities, points, summary };
+}
+
+// ─── Head-to-Head Competitor Comparison ─────────────────────────────────────
+
+export interface HeadToHeadPromptRow {
+  resultId: string;
+  promptId: string;
+  promptText: string;
+  promptCategory?: string;
+  brandScore: number;
+  competitorScore: number;
+  diff: number;
+  platform: string;
+  modelUsed: string;
+  region?: string;
+  response: string;
+  citations: Citation[];
+  sentiment: Sentiment;
+  brandMentionCount: number;
+  brandCitationCount: number;
+  compMentionCount: number;
+  compCitationCount: number;
+  createdAt: string;
+}
+
+export interface HeadToHeadPlatformRow {
+  platform: string;
+  brandScore: number;
+  competitorScore: number;
+  diff: number;
+}
+
+export interface HeadToHeadData {
+  promptRows: HeadToHeadPromptRow[];
+  platformRows: HeadToHeadPlatformRow[];
+  brandAvg: number;
+  competitorAvg: number;
+  gaps: HeadToHeadPromptRow[];
+  strengths: HeadToHeadPromptRow[];
+}
+
+/**
+ * Compare a brand vs a single competitor prompt-by-prompt.
+ * Returns per-prompt scores, per-platform breakdown, gaps and strengths.
+ */
+export async function getHeadToHeadComparison(
+  brandId: string,
+  competitorId: string,
+): Promise<HeadToHeadData> {
+  const supabase = await dbClient();
+
+  // #155 — head-to-head comparisons are a Competitors-tab feature, which
+  // also lives under Insights — same isolation rule applies here.
+  const { data: results, error } = await supabase
+    .from('prompt_results')
+    .select('*')
+    .eq('brand_id', brandId)
+    .neq('platform', 'chatgpt-shopping')
+    .order('created_at', { ascending: false });
+
+  if (error) throw new Error(error.message);
+  const rows = (results ?? []) as Record<string, unknown>[];
+  if (rows.length === 0) {
+    return {
+      promptRows: [],
+      platformRows: [],
+      brandAvg: 0,
+      competitorAvg: 0,
+      gaps: [],
+      strengths: [],
+    };
+  }
+
+  const promptIds = [...new Set(rows.map((r) => r.prompt_id as string))];
+  const { data: promptData } =
+    promptIds.length > 0
+      ? await supabase.from('prompts').select('id, text, category').in('id', promptIds)
+      : { data: [] };
+  const promptMap = new Map(
+    (promptData ?? []).map((p) => [
+      p.id,
+      {
+        text: p.text as string,
+        category: (p.category as string | null) ?? undefined,
+      },
+    ]),
+  );
+
+  const promptRows: HeadToHeadPromptRow[] = [];
+
+  type PlatAgg = {
+    brandTotal: number;
+    brandCount: number;
+    compTotal: number;
+    compCount: number;
+  };
+  const platMap = new Map<string, PlatAgg>();
+
+  let brandTotalScore = 0;
+  let brandCount = 0;
+  let compTotalScore = 0;
+  let compCount = 0;
+
+  for (const row of rows) {
+    const brandScore = row.visibility_score as number;
+    const platform = resolveProvider(
+      row.model_used as string | null,
+      row.platform as string | null,
+    );
+    const mentions = (row.competitor_mentions as CompetitorMention[] | null) ?? [];
+    const comp = mentions.find((cm) => cm.competitor_id === competitorId);
+    const compScore = comp?.visibility_score ?? 0;
+
+    const pm = promptMap.get(row.prompt_id as string);
+
+    const modelUsed = (row.model_used as string | null) ?? '';
+
+    promptRows.push({
+      resultId: row.id as string,
+      promptId: row.prompt_id as string,
+      promptText: pm?.text ?? '',
+      promptCategory: pm?.category,
+      brandScore,
+      competitorScore: compScore,
+      diff: brandScore - compScore,
+      platform,
+      modelUsed,
+      region: (row.region as string | null) ?? undefined,
+      response: (row.response as string) ?? '',
+      citations: (row.citations as Citation[]) ?? [],
+      sentiment: (row.sentiment as Sentiment) ?? 'neutral',
+      brandMentionCount: row.mention_count as number,
+      brandCitationCount: row.citation_count as number,
+      compMentionCount: comp?.mention_count ?? 0,
+      compCitationCount: comp?.citation_count ?? 0,
+      createdAt: row.created_at as string,
+    });
+
+    brandTotalScore += brandScore;
+    brandCount += 1;
+    if (comp) {
+      compTotalScore += compScore;
+      compCount += 1;
+    }
+
+    const pa = platMap.get(platform) ?? {
+      brandTotal: 0,
+      brandCount: 0,
+      compTotal: 0,
+      compCount: 0,
+    };
+    pa.brandTotal += brandScore;
+    pa.brandCount += 1;
+    if (comp) {
+      pa.compTotal += compScore;
+      pa.compCount += 1;
+    }
+    platMap.set(platform, pa);
+  }
+
+  const platformRows: HeadToHeadPlatformRow[] = [...platMap.entries()]
+    .map(([platform, a]) => {
+      const bs = a.brandCount > 0 ? Math.round(a.brandTotal / a.brandCount) : 0;
+      const cs = a.compCount > 0 ? Math.round(a.compTotal / a.compCount) : 0;
+      return { platform, brandScore: bs, competitorScore: cs, diff: bs - cs };
+    })
+    .sort((a, b) => a.platform.localeCompare(b.platform));
+
+  const brandAvg = brandCount > 0 ? Math.round(brandTotalScore / brandCount) : 0;
+  const competitorAvg = compCount > 0 ? Math.round(compTotalScore / compCount) : 0;
+
+  const sorted = [...promptRows].sort((a, b) => a.diff - b.diff);
+  const gaps = sorted.filter((r) => r.diff < 0).slice(0, 10);
+  const strengths = sorted
+    .filter((r) => r.diff > 0)
+    .reverse()
+    .slice(0, 10);
+
+  return { promptRows, platformRows, brandAvg, competitorAvg, gaps, strengths };
+}
+
+// ─── Insights Metric Breakdown (Root-Cause Drilldown) ─────────────────────────
+
+export type BreakdownMetric = 'mentions' | 'visibility';
+
+function formatPlatformLabel(slug: string): string {
+  return PLATFORM_LABELS[slug] ?? slug;
+}
+
+export interface BreakdownRow {
+  /** Unique identifier for the row: prompt_id / platform name / topic_id. */
+  id: string;
+  /** Display label: prompt text / platform name / topic name. */
+  label: string;
+  /** Optional secondary label (e.g. topic name for a prompt). */
+  sublabel?: string;
+  /** Metric value in the current window. */
+  cur: number;
+  /** Metric value in the previous window. */
+  prev: number;
+  /** Absolute change (cur - prev). */
+  delta: number;
+  /** Percentage change. Null when previous is zero (use delta instead). */
+  deltaPct: number | null;
+  /** Number of result rows that contributed in the current window. */
+  curRuns: number;
+  /** Number of result rows that contributed in the previous window. */
+  prevRuns: number;
+}
+
+export interface InsightsBreakdown {
+  metric: BreakdownMetric;
+  curTotal: number;
+  prevTotal: number;
+  delta: number;
+  deltaPct: number | null;
+  /** Number of full calendar days covered by each comparison window. */
+  windowDays: number;
+  byPrompt: BreakdownRow[];
+  byPlatform: BreakdownRow[];
+  byTopic: BreakdownRow[];
+  /** One-line rule-based root-cause summary for the drop/rise. */
+  rootCause: string;
+}
+
+/** Aggregate a metric over a set of raw prompt_results rows. */
+function aggregateMetric(
+  rows: Array<{
+    mention_count: number;
+    citation_count?: number;
+    visibility_score: number;
+    mention_position?: number | null;
+  }>,
+  metric: BreakdownMetric,
+): { value: number; runs: number } {
+  if (metric === 'visibility') {
+    if (rows.length === 0) return { value: 0, runs: 0 };
+    // AI Visibility Score over the group's answers — the drill-down explains
+    // the same number the KPI card shows, per prompt/platform/topic.
+    let mentionAnswers = 0;
+    let citationAnswers = 0;
+    let posSum = 0;
+    let posN = 0;
+    for (const r of rows) {
+      if ((r.mention_count ?? 0) > 0) mentionAnswers++;
+      if ((r.citation_count ?? 0) > 0) citationAnswers++;
+      const pos = r.mention_position;
+      if (pos !== null && pos !== undefined && pos > 0) {
+        posSum += 1 / pos;
+        posN++;
+      }
+    }
+    return {
+      value:
+        computeAiVisibilityScore({
+          answers: rows.length,
+          mentionAnswers,
+          citationAnswers,
+          positionFactor: posN > 0 ? posSum / posN : null,
+        }) ?? 0,
+      runs: rows.length,
+    };
+  }
+  const value = rows.reduce((s, r) => s + (r.mention_count ?? 0), 0);
+  return { value, runs: rows.length };
+}
+
+function computeDelta(
+  cur: number,
+  prev: number,
+  metric: BreakdownMetric,
+): { delta: number; deltaPct: number | null } {
+  if (metric === 'visibility') {
+    return {
+      delta: Math.round((cur - prev) * 10) / 10,
+      deltaPct: null,
+    };
+  }
+  const delta = cur - prev;
+  const deltaPct = prev > 0 ? Math.round((delta / prev) * 100) : null;
+  return { delta, deltaPct };
+}
+
+/**
+ * Returns a per-prompt / per-platform / per-topic breakdown comparing the
+ * current window with the previous window of equal duration.
+ *
+ * Used by the Insights KPI drill-down Sheet to surface which entities drove a
+ * metric change (e.g. "Mentions dropped 12% because prompt X lost 84 mentions
+ * on ChatGPT"). Windows mirror `getInsightsSummary` — when `dateFrom` is
+ * provided the current window spans [dateFrom, dateTo ?? now] and the previous
+ * window has the same length immediately before; otherwise both are 7 days.
+ */
+export async function getInsightsBreakdown(
+  brandId: string,
+  metric: BreakdownMetric,
+  opts?: {
+    model?: string;
+    region?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    topicId?: string;
+  },
+): Promise<InsightsBreakdown> {
+  const supabase = await dbClient();
+
+  let currentFrom: Date;
+  let currentTo: Date;
+
+  if (opts?.dateFrom) {
+    currentFrom = new Date(opts.dateFrom);
+    currentTo = opts.dateTo ? new Date(opts.dateTo) : new Date();
+  } else {
+    currentTo = new Date();
+    currentFrom = new Date();
+    currentFrom.setDate(currentFrom.getDate() - 7);
+  }
+
+  const duration = currentTo.getTime() - currentFrom.getTime();
+  const prevFrom = new Date(currentFrom.getTime() - duration);
+  const prevTo = currentFrom;
+  const windowDays = Math.max(1, Math.round(duration / (24 * 60 * 60 * 1000)));
+
+  const { query: curQuery } = await buildResultsQuery(brandId, {
+    ...opts,
+    dateFrom: currentFrom.toISOString(),
+    dateTo: currentTo.toISOString(),
+  });
+  const { query: prevQuery } = await buildResultsQuery(brandId, {
+    ...opts,
+    dateFrom: prevFrom.toISOString(),
+    dateTo: prevTo.toISOString(),
+  });
+
+  const [curRes, prevRes] = await Promise.all([curQuery, prevQuery]);
+  if (curRes.error) throw new Error(curRes.error.message);
+  if (prevRes.error) throw new Error(prevRes.error.message);
+
+  type Row = {
+    prompt_id: string;
+    platform: string;
+    mention_count: number;
+    citation_count: number;
+    visibility_score: number;
+    mention_position: number | null;
+  };
+  const curRows = (curRes.data ?? []) as unknown as Row[];
+  const prevRows = (prevRes.data ?? []) as unknown as Row[];
+
+  const allPromptIds = new Set<string>();
+  for (const r of curRows) allPromptIds.add(r.prompt_id);
+  for (const r of prevRows) allPromptIds.add(r.prompt_id);
+
+  // Resolve prompt text + topic for every participating prompt.
+  const { data: promptRowsRaw } =
+    allPromptIds.size > 0
+      ? await supabase
+          .from('prompts')
+          .select('id, text, topic_id')
+          .in('id', [...allPromptIds])
+      : { data: [] as unknown[] };
+
+  const promptInfo = new Map<string, { text: string; topicId: string | null }>();
+  const topicIds = new Set<string>();
+  for (const p of (promptRowsRaw ?? []) as Array<{
+    id: string;
+    text: string;
+    topic_id: string | null;
+  }>) {
+    promptInfo.set(p.id, { text: p.text, topicId: p.topic_id });
+    if (p.topic_id) topicIds.add(p.topic_id);
+  }
+
+  const { data: topicRowsRaw } =
+    topicIds.size > 0
+      ? await supabase
+          .from('topics')
+          .select('id, name')
+          .in('id', [...topicIds])
+      : { data: [] as unknown[] };
+
+  const topicNameById = new Map<string, string>();
+  for (const t of (topicRowsRaw ?? []) as Array<{ id: string; name: string }>) {
+    topicNameById.set(t.id, t.name);
+  }
+
+  // ─── Group rows by prompt / platform / topic ────────────────────────────────
+  function groupBy<K extends string>(rows: Row[], keyFn: (r: Row) => K) {
+    const m = new Map<K, Row[]>();
+    for (const r of rows) {
+      const k = keyFn(r);
+      const arr = m.get(k) ?? [];
+      arr.push(r);
+      m.set(k, arr);
+    }
+    return m;
+  }
+
+  function mergeKeys<K>(a: Map<K, unknown>, b: Map<K, unknown>): K[] {
+    const s = new Set<K>();
+    for (const k of a.keys()) s.add(k);
+    for (const k of b.keys()) s.add(k);
+    return [...s];
+  }
+
+  function buildRows(
+    curMap: Map<string, Row[]>,
+    prevMap: Map<string, Row[]>,
+    resolver: (key: string) => { id: string; label: string; sublabel?: string },
+  ): BreakdownRow[] {
+    const keys = mergeKeys(curMap, prevMap);
+    const rows: BreakdownRow[] = keys.map((key) => {
+      const curAgg = aggregateMetric(curMap.get(key) ?? [], metric);
+      const prevAgg = aggregateMetric(prevMap.get(key) ?? [], metric);
+      const { delta, deltaPct } = computeDelta(curAgg.value, prevAgg.value, metric);
+      const { id, label, sublabel } = resolver(key);
+      return {
+        id,
+        label,
+        sublabel,
+        cur: curAgg.value,
+        prev: prevAgg.value,
+        delta,
+        deltaPct,
+        curRuns: curAgg.runs,
+        prevRuns: prevAgg.runs,
+      };
+    });
+    // Sort: biggest drops first, then biggest gains, untouched rows last.
+    rows.sort((a, b) => a.delta - b.delta);
+    return rows;
+  }
+
+  const curByPrompt = groupBy(curRows, (r) => r.prompt_id);
+  const prevByPrompt = groupBy(prevRows, (r) => r.prompt_id);
+  const byPrompt = buildRows(curByPrompt, prevByPrompt, (pid) => {
+    const info = promptInfo.get(pid);
+    const topicName = info?.topicId ? topicNameById.get(info.topicId) : undefined;
+    return {
+      id: pid,
+      label: info?.text ?? 'Unknown prompt',
+      sublabel: topicName,
+    };
+  });
+
+  const curByPlatform = groupBy(curRows, (r) => r.platform);
+  const prevByPlatform = groupBy(prevRows, (r) => r.platform);
+  const byPlatform = buildRows(curByPlatform, prevByPlatform, (plat) => ({
+    id: plat,
+    label: formatPlatformLabel(plat),
+  }));
+
+  const curByTopic = groupBy(curRows, (r) => {
+    const info = promptInfo.get(r.prompt_id);
+    return info?.topicId ?? '__uncategorized__';
+  });
+  const prevByTopic = groupBy(prevRows, (r) => {
+    const info = promptInfo.get(r.prompt_id);
+    return info?.topicId ?? '__uncategorized__';
+  });
+  const byTopic = buildRows(curByTopic, prevByTopic, (tid) => ({
+    id: tid,
+    label:
+      tid === '__uncategorized__' ? 'Uncategorized' : (topicNameById.get(tid) ?? 'Unknown topic'),
+  }));
+
+  // ─── Totals + root-cause summary ────────────────────────────────────────────
+  const curTotalAgg = aggregateMetric(curRows, metric);
+  const prevTotalAgg = aggregateMetric(prevRows, metric);
+  const { delta: totalDelta, deltaPct: totalDeltaPct } = computeDelta(
+    curTotalAgg.value,
+    prevTotalAgg.value,
+    metric,
+  );
+
+  const metricLabel =
+    metric === 'visibility' ? 'Visibility' : metric === 'mentions' ? 'Mentions' : 'Citations';
+
+  const isDrop = totalDelta < 0;
+  const isFlat = totalDelta === 0;
+
+  // Select the biggest contributor in the same direction as the overall change.
+  // `buildRows` sorts ascending by delta so byPrompt[0] is the largest drop and
+  // byPrompt[last] is the largest gain.
+  const topPrompt = isDrop ? byPrompt[0] : byPrompt[byPrompt.length - 1];
+  const topPlatform = isDrop ? byPlatform[0] : byPlatform[byPlatform.length - 1];
+
+  const promptContributes = !!topPrompt && (isDrop ? topPrompt.delta < 0 : topPrompt.delta > 0);
+  const platformContributes =
+    !!topPlatform && (isDrop ? topPlatform.delta < 0 : topPlatform.delta > 0);
+
+  let rootCause: string;
+  if (isFlat) {
+    rootCause = `${metricLabel} held steady vs the previous ${windowDays}-day window.`;
+  } else if (!promptContributes) {
+    const dir = totalDelta > 0 ? 'rose' : 'fell';
+    const magnitude = formatTotalMagnitude(totalDelta, totalDeltaPct, metric);
+    rootCause = `${metricLabel} ${dir} ${magnitude} vs the previous ${windowDays}d — the change is spread evenly across prompts, no single driver.`;
+  } else {
+    const headline = isDrop ? 'Biggest drop' : 'Biggest gain';
+    const promptClause = `"${truncate(topPrompt!.label, 60)}" ${formatContribution(topPrompt!, metric)}`;
+    const platformClause = platformContributes
+      ? ` Top platform ${isDrop ? 'drop' : 'gain'}: ${topPlatform!.label} ${formatContribution(topPlatform!, metric)}.`
+      : '';
+    rootCause = `${headline}: ${promptClause}.${platformClause}`;
+  }
+
+  return {
+    metric,
+    curTotal: curTotalAgg.value,
+    prevTotal: prevTotalAgg.value,
+    delta: totalDelta,
+    deltaPct: totalDeltaPct,
+    windowDays,
+    byPrompt,
+    byPlatform,
+    byTopic,
+    rootCause,
+  };
+}
+
+function truncate(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+
+/**
+ * Format a single contributor's delta as a human sentence fragment, e.g.:
+ *   - mentions:  "lost 84 mentions (−38%)"   or  "gained 12 mentions"
+ *   - citations: "lost 7 citations (−15%)"
+ *   - visibility: "dropped 2.1 pts"           or  "rose 2.1 pts"
+ */
+function formatContribution(row: BreakdownRow, metric: BreakdownMetric): string {
+  const isLoss = row.delta < 0;
+  const abs = Math.abs(row.delta);
+
+  if (metric === 'visibility') {
+    const verb = isLoss ? 'dropped' : 'rose';
+    const value = Math.round(abs * 10) / 10;
+    return `${verb} ${value} pts`;
+  }
+
+  const verb = isLoss ? 'lost' : 'gained';
+  const core = `${verb} ${abs.toLocaleString('en-US')} mentions`;
+  if (row.deltaPct === null) return core;
+  const sign = row.deltaPct < 0 ? '−' : '+';
+  return `${core} (${sign}${Math.abs(row.deltaPct)}%)`;
+}
+
+function formatTotalMagnitude(
+  delta: number,
+  deltaPct: number | null,
+  metric: BreakdownMetric,
+): string {
+  const abs = Math.abs(delta);
+  if (metric === 'visibility') {
+    return `${Math.round(abs * 10) / 10} pts`;
+  }
+  const core = `${abs.toLocaleString('en-US')} mentions`;
+  if (deltaPct === null) return core;
+  const sign = deltaPct < 0 ? '−' : '+';
+  return `${core} (${sign}${Math.abs(deltaPct)}%)`;
+}
+
+// ─── Topic detail bundle (#312) ───────────────────────────────────────────
+
+export interface TopicDetailData {
+  topic: Topic | null;
+  summary: InsightsSummary;
+  trend: VisibilityTrendPoint[];
+  sov: ShareOfVoiceData;
+  competitors: CompetitorComparisonData;
+  results: PromptResultWithText[];
+}
+
+/**
+ * One server action for the whole topic detail page (#312).
+ *
+ * The page previously fired six separate server-action calls from the client.
+ * Next.js runs server actions **sequentially** (each is its own queued POST),
+ * so that cost was roughly the sum of all six, not the slowest. Collapsing them
+ * into one action means a single round trip whose body runs the work in a real
+ * server-side `Promise.all` (genuinely parallel). The topic is fetched by id
+ * instead of pulling the whole topics list just to read one name.
+ *
+ * Output is identical to the old per-call results — this is a perf refactor.
+ */
+export async function getTopicDetail(brandId: string, topicId: string): Promise<TopicDetailData> {
+  // Access first, on the caller's own client: RLS answers whether this user
+  // may see the brand, and the query ties the topic to that brand.
+  const topic = await getTopicById(brandId, topicId);
+  if (!topic) throw new Error('Topic not found');
+
+  // Topic-filtered reads cannot use the daily rollups, so they scan raw
+  // results over the topic's whole history. On a 91-prompt topic with 27k
+  // results the calls below ran 5-9s each when run together — past the
+  // authenticated role's 8s statement timeout, so the page never loaded.
+  // They run on the service-role client instead (120s, migration 00100).
+  // That skips RLS, which is safe only because the brand was checked above
+  // and every read in these loaders filters by brand_id.
+  // Imported here, not at module load: the admin client needs the service key
+  // the moment it is created, and most of this module never touches it.
+  const { supabaseAdmin } = await import('@/lib/supabase/admin');
+  const [summary, rateTrend, sov, competitors, results] = await withDbClient(
+    supabaseAdmin as unknown as Awaited<ReturnType<typeof dbClient>>,
+    () =>
+      Promise.all([
+        getInsightsSummary(brandId, { topicId }),
+        // #685 — use the new-formula RPC so the trend sits on the same 0-100
+        // scale as the headline AI Visibility Score. getVisibilityTrend
+        // averaged raw visibility_score over all answers (incl. 0-scored
+        // absent-brand rows).
+        getVisibilityRateTrend(brandId, { topicId }),
+        getShareOfVoiceData(brandId, { topicId }),
+        getCompetitorComparison(brandId, { topicId }),
+        getPromptResults(brandId, { topicId, limit: 50 }),
+      ]),
+  );
+
+  // Adapt VisibilityRateTrendData → VisibilityTrendPoint[] so topic_charts.tsx
+  // keeps its existing VisibilityTrendPoint shape without modification.
+  const competitorKeys = rateTrend.entities.filter((e) => !e.isOwnBrand).map((e) => e.key);
+  const trend: VisibilityTrendPoint[] = rateTrend.points.map((pt) => {
+    const compScores = competitorKeys
+      .map((k) => pt.values[k])
+      .filter((v): v is number => v !== undefined);
+    return {
+      date: pt.date,
+      score: pt.values['you'] ?? 0,
+      competitors:
+        compScores.length > 0
+          ? roundTo1(compScores.reduce((a, b) => a + b, 0) / compScores.length)
+          : null,
+    };
+  });
+
+  return { topic, summary, trend, sov, competitors, results: results.results };
+}

@@ -1,0 +1,20 @@
+{
+  "name": "zentic",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Open source AI Engine Optimization platform",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zentic/zentic.git"
+  },
+  "homepage": "https://github.com/zentic/zentic",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "version:check": "node scripts/version-check.js",
+    "version:bump": "node scripts/version-bump.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

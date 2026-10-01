@@ -1,0 +1,1018 @@
+'use client';
+
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useTranslations } from 'next-intl';
+import { Card, CardContent, CardHeader, CardTitle } from '@workspace/ansvisor-design-system/components/ui/card';
+import { Badge } from '@workspace/ansvisor-design-system/components/ui/badge';
+import { Button } from '@workspace/ansvisor-design-system/components/ui/button';
+import { Input } from '@workspace/ansvisor-design-system/components/ui/input';
+import { Checkbox } from '@workspace/ansvisor-design-system/components/ui/checkbox';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@workspace/ansvisor-design-system/components/ui/select';
+import {
+  Combobox,
+  ComboboxCollection,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxTrigger,
+  ComboboxValue,
+} from '@/components/ui/combobox';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@workspace/ansvisor-design-system/components/ui/dialog';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@workspace/ansvisor-design-system/components/ui/table';
+import {
+  Lightbulb,
+  Zap,
+  Send,
+  Check,
+  BarChart3,
+  Search,
+  Loader2,
+  RefreshCw,
+  ExternalLink,
+  X,
+  Settings2,
+  Trash2,
+} from 'lucide-react';
+import { cn } from '@workspace/ansvisor-design-system/lib/utils';
+import { useBrandStore } from '@/stores/use-brand-store';
+import { usePlanContext } from '@/components/providers/plan-provider';
+import {
+  generateOpportunities,
+  getGenerationJobStatus,
+  getOpportunities,
+  getOpportunityPrompts,
+  type OpportunityPrompt,
+  updateOpportunityStatus,
+  sendToWebhook,
+  bulkSendToWebhook,
+  bulkUpdateStatus,
+  bulkDeleteOpportunities,
+} from '@/lib/actions/content';
+import type { ContentOpportunity, ContentOpportunityStatus } from '@/types';
+import { toast } from 'sonner';
+import { Link } from '@/i18n/navigation';
+import { WebhookSettingsDialog } from './_webhook-settings';
+import { PAGE_SIZE, TablePager, usePagination } from '@/components/table-pager';
+
+const GENERATION_STORAGE_KEY = 'aeo:content-generation';
+const GENERATION_TIMEOUT_MS = 3 * 60 * 1000;
+
+interface GenerationJob {
+  brandId: string;
+  jobId: string;
+  startedAt: number;
+}
+
+function saveGenerationJob(job: GenerationJob) {
+  try {
+    localStorage.setItem(GENERATION_STORAGE_KEY, JSON.stringify(job));
+  } catch {}
+}
+
+function loadGenerationJob(): GenerationJob | null {
+  try {
+    const raw = localStorage.getItem(GENERATION_STORAGE_KEY);
+    if (!raw) return null;
+    const job = JSON.parse(raw) as GenerationJob;
+    if (Date.now() - job.startedAt > GENERATION_TIMEOUT_MS) {
+      localStorage.removeItem(GENERATION_STORAGE_KEY);
+      return null;
+    }
+    return job;
+  } catch {
+    return null;
+  }
+}
+
+function clearGenerationJob() {
+  try {
+    localStorage.removeItem(GENERATION_STORAGE_KEY);
+  } catch {}
+}
+
+const IMPACT_COLORS: Record<string, string> = {
+  high: 'border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400',
+  medium: 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  low: 'border-slate-500/30 bg-slate-500/10 text-slate-600 dark:text-slate-400',
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  new: 'border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400',
+  sent: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+  in_progress: 'border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-400',
+  done: 'border-green-500/30 bg-green-500/10 text-green-600 dark:text-green-400',
+  dismissed: 'border-zinc-500/30 bg-zinc-500/10 text-zinc-500 dark:text-zinc-400',
+};
+
+function KpiCard({
+  title,
+  icon: Icon,
+  value,
+  sub,
+}: {
+  title: string;
+  icon: React.ElementType;
+  value: React.ReactNode;
+  sub: React.ReactNode;
+}) {
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+        <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          {title}
+        </CardTitle>
+        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+      </CardHeader>
+      <CardContent>
+        <div className="text-3xl font-bold">{value}</div>
+        <p className="text-xs mt-1 text-muted-foreground">{sub}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+const ALL_PROMPTS = '__all__';
+
+interface PromptFilterItem {
+  value: string;
+  label: string;
+  /** Opportunities for this prompt; null on the "All prompts" row. */
+  count: number | null;
+}
+
+export default function ContentPage() {
+  const t = useTranslations('content');
+  const tCommon = useTranslations('common');
+  const activeBrandId = useBrandStore((s) => s.activeBrandId);
+  const { isCloud } = usePlanContext();
+
+  const [opportunities, setOpportunities] = useState<ContentOpportunity[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [sendingId, setSendingId] = useState<string | null>(null);
+
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [impactFilter, setImpactFilter] = useState<string>('all');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
+  // The prompt filter (#836) lives in the URL as ?prompt=<id> so a filtered
+  // view can be linked to. It is read after mount — useSearchParams would need
+  // a Suspense boundary around the page — and loading waits for it, so a
+  // linked view never flashes the unfiltered list first.
+  const [promptFilter, setPromptFilter] = useState('');
+  const [urlRead, setUrlRead] = useState(false);
+  // null until loaded for the current brand.
+  const [promptOptions, setPromptOptions] = useState<OpportunityPrompt[] | null>(null);
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkSending, setBulkSending] = useState(false);
+
+  const [webhookOpen, setWebhookOpen] = useState(false);
+  const pollRef = useRef(false);
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  const [aggregates, setAggregates] = useState({
+    avgScore: 0,
+    highImpactCount: 0,
+    sentCount: 0,
+  });
+
+  // Server-side paging (#610) — the list can hold far more than one page's
+  // worth of opportunities, so `total` (the exact server count) drives the
+  // pager instead of the length of whatever page happens to be loaded.
+  const pager = usePagination(
+    total,
+    `${statusFilter}|${impactFilter}|${typeFilter}|${promptFilter}|${debouncedSearch}`,
+  );
+
+  const loadData = useCallback(
+    async (silent = false, isCancelled?: () => boolean) => {
+      if (!urlRead) return;
+      if (!activeBrandId) {
+        setOpportunities([]);
+        setTotal(0);
+        setAggregates({
+          avgScore: 0,
+          highImpactCount: 0,
+          sentCount: 0,
+        });
+        setLoading(false);
+        return;
+      }
+
+      if (!silent) setLoading(true);
+      setSelectedIds(new Set());
+      try {
+        const filters: Record<string, string> = {};
+        if (statusFilter !== 'all') filters.status = statusFilter;
+        if (impactFilter !== 'all') filters.impact = impactFilter;
+        if (typeFilter !== 'all') filters.type = typeFilter;
+        if (promptFilter) filters.promptId = promptFilter;
+        if (debouncedSearch.trim()) {
+          filters.q = debouncedSearch.trim();
+        }
+
+        const data = await getOpportunities(activeBrandId, {
+          ...filters,
+          limit: PAGE_SIZE,
+          offset: pager.start,
+          sort: 'score',
+        });
+        if (isCancelled?.()) return;
+        setOpportunities(data.opportunities);
+        setTotal(data.total);
+        setAggregates(
+          data.aggregates ?? {
+            avgScore: 0,
+            highImpactCount: 0,
+            sentCount: 0,
+          },
+        );
+        return data.total;
+      } catch (err) {
+        console.error('Failed to load opportunities:', err);
+        toast.error(t('loadError'));
+        return 0;
+      } finally {
+        if (!isCancelled?.()) {
+          setLoading(false);
+        }
+      }
+    },
+    [
+      urlRead,
+      activeBrandId,
+      statusFilter,
+      impactFilter,
+      typeFilter,
+      promptFilter,
+      pager.start,
+      debouncedSearch,
+      t,
+    ],
+  );
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    setPromptFilter(new URLSearchParams(window.location.search).get('prompt') ?? '');
+    setUrlRead(true);
+  }, []);
+
+  const selectPrompt = useCallback((promptId: string) => {
+    setPromptFilter(promptId);
+    const url = new URL(window.location.href);
+    if (promptId) url.searchParams.set('prompt', promptId);
+    else url.searchParams.delete('prompt');
+    window.history.replaceState(window.history.state, '', url);
+  }, []);
+
+  const loadPromptOptions = useCallback(
+    async (isCancelled?: () => boolean) => {
+      if (!activeBrandId) return;
+      try {
+        const options = await getOpportunityPrompts(activeBrandId);
+        if (!isCancelled?.()) setPromptOptions(options);
+      } catch {
+        // The filter is a convenience; without its options it just stays hidden.
+        if (!isCancelled?.()) setPromptOptions([]);
+      }
+    },
+    [activeBrandId],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    setPromptOptions(null);
+    loadPromptOptions(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
+  }, [loadPromptOptions]);
+
+  // A prompt id from another brand, or one whose prompt was deleted, would
+  // filter to nothing while the picker shows "All prompts". Drop it.
+  useEffect(() => {
+    if (!promptFilter || promptOptions === null) return;
+    if (!promptOptions.some((o) => o.promptId === promptFilter)) selectPrompt('');
+  }, [promptFilter, promptOptions, selectPrompt]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadData(false, () => cancelled);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadData]);
+
+  const pollJob = useCallback(
+    (jobId: string, startedAt: number) => {
+      pollRef.current = true;
+      setGenerating(true);
+
+      const poll = async () => {
+        while (pollRef.current) {
+          await new Promise((r) => setTimeout(r, 3000));
+          if (!pollRef.current) break;
+          try {
+            const status = await getGenerationJobStatus(jobId);
+
+            if (status.status === 'completed') {
+              pollRef.current = false;
+              clearGenerationJob();
+              setGenerating(false);
+              toast.success(t('generatedToast', { count: status.result?.generated ?? 0 }));
+              loadData();
+              loadPromptOptions();
+              break;
+            }
+
+            if (status.status === 'failed') {
+              pollRef.current = false;
+              clearGenerationJob();
+              setGenerating(false);
+              toast.error(status.failedReason || t('generationFailed'));
+              break;
+            }
+
+            if (Date.now() - startedAt > GENERATION_TIMEOUT_MS) {
+              pollRef.current = false;
+              clearGenerationJob();
+              setGenerating(false);
+              toast.error(t('generationTimedOut'));
+              break;
+            }
+          } catch {
+            // keep polling
+          }
+        }
+      };
+
+      poll();
+    },
+    [loadData, loadPromptOptions, t],
+  );
+  // Restore generation state from localStorage on mount
+  useEffect(() => {
+    if (!activeBrandId) return;
+    const saved = loadGenerationJob();
+    if (!saved || saved.brandId !== activeBrandId) return;
+
+    pollJob(saved.jobId, saved.startedAt);
+    return () => {
+      pollRef.current = false;
+    };
+  }, [activeBrandId, pollJob]);
+
+  const handleGenerate = async () => {
+    if (!activeBrandId) return;
+    try {
+      const { jobId } = await generateOpportunities(activeBrandId);
+      const startedAt = Date.now();
+      saveGenerationJob({ brandId: activeBrandId, jobId, startedAt });
+      pollJob(jobId, startedAt);
+    } catch (err) {
+      console.error('Generate failed:', err);
+      toast.error(err instanceof Error ? err.message : t('generateError'));
+      setGenerating(false);
+    }
+  };
+
+  const handleSendWebhook = async (id: string) => {
+    setSendingId(id);
+    try {
+      const result = await sendToWebhook(id);
+      if (result.success === false) {
+        toast.error(result.error);
+      } else {
+        toast.success(t('sentToWorkflow'));
+        await loadData(true);
+      }
+    } catch (err) {
+      console.error('Webhook send failed:', err);
+      toast.error(t('sendError'));
+    } finally {
+      setSendingId(null);
+    }
+  };
+
+  const handleDismiss = async (id: string) => {
+    try {
+      await updateOpportunityStatus(id, 'dismissed');
+      await loadData(true);
+      toast.success(t('dismissedToast'), {
+        action: {
+          label: t('undo'),
+          onClick: async () => {
+            try {
+              await updateOpportunityStatus(id, 'new');
+              await loadData(true);
+            } catch {
+              toast.error(t('undoFailed'));
+            }
+          },
+        },
+      });
+    } catch (err) {
+      console.error('Dismiss failed:', err);
+      toast.error(t('dismissError'));
+    }
+  };
+
+  const handleBulkSend = async () => {
+    setBulkSending(true);
+    try {
+      const result = await bulkSendToWebhook(Array.from(selectedIds));
+      if (!result.success) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(t('bulkSentToast', { sent: result.sent }));
+      if (result.failed > 0) toast.error(t('bulkSendPartialError', { failed: result.failed }));
+      setSelectedIds(new Set());
+      await loadData(true);
+    } catch (err) {
+      console.error('Bulk webhook send failed:', err);
+      toast.error(t('bulkSendError'));
+    } finally {
+      setBulkSending(false);
+    }
+  };
+
+  const handleBulkDone = async () => {
+    setBulkSending(true);
+
+    try {
+      const ids = Array.from(selectedIds);
+      const result = await bulkUpdateStatus(ids, 'done');
+      toast.success(t('bulkDoneToast', { updated: result.updated }));
+      setSelectedIds(new Set());
+      await loadData(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('bulkUpdateError'));
+    } finally {
+      setBulkSending(false);
+    }
+  };
+
+  const handleBulkDismiss = async () => {
+    setBulkSending(true);
+    try {
+      const ids = Array.from(selectedIds);
+      const result = await bulkUpdateStatus(ids, 'dismissed');
+      toast.success(t('bulkDismissToast', { updated: result.updated }));
+      setSelectedIds(new Set());
+      await loadData(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('bulkDismissError'));
+    } finally {
+      setBulkSending(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    setBulkSending(true);
+    try {
+      const ids = Array.from(selectedIds);
+      const result = await bulkDeleteOpportunities(ids);
+      toast.success(t('bulk.deletedToast', { count: result.deleted }));
+      setSelectedIds(new Set());
+      // No page reset needed: `usePagination` clamps to the last page that
+      // still exists, and the narrowed `start` refetches on its own. Resetting
+      // here as well would fire a second, competing load.
+      await loadData(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('bulkDeleteError'));
+    } finally {
+      setBulkSending(false);
+    }
+  };
+
+  const filtered = opportunities.filter(
+    (o) =>
+      o.title.toLowerCase().includes(search.toLowerCase()) ||
+      (o.description || '').toLowerCase().includes(search.toLowerCase()),
+  );
+
+  // `{ value, label }` items let the Combobox filter and display on its own.
+  // One prompt has nothing to narrow, so the picker only appears for two or
+  // more — or while a filter is set, so it can still be cleared.
+  const promptItems = useMemo<PromptFilterItem[]>(
+    () => [
+      { value: ALL_PROMPTS, label: tCommon('allPrompts'), count: null },
+      ...(promptOptions ?? []).map((o) => ({ value: o.promptId, label: o.text, count: o.count })),
+    ],
+    [promptOptions, tCommon],
+  );
+  const showPromptFilter = (promptOptions?.length ?? 0) >= 2 || promptFilter !== '';
+  const promptFilterTitle = promptItems.find((item) => item.value === promptFilter)?.label;
+
+  /** How many of the selected rows would lose a generated brief (#731). */
+  const selectedWithBrief = opportunities.filter(
+    (o) => selectedIds.has(o.id) && Boolean(o.brief),
+  ).length;
+
+  // "The brand has nothing" and "this filter matched nothing" are different
+  // states with different remedies, and the page used to answer both with the
+  // Generate card — which hid the very controls needed to undo the filter
+  // (#660). The unfiltered view is the only one whose emptiness means the
+  // brand truly has no opportunities.
+  const hasActiveFilters =
+    statusFilter !== 'all' ||
+    impactFilter !== 'all' ||
+    typeFilter !== 'all' ||
+    promptFilter !== '' ||
+    search.trim() !== '';
+
+  const clearFilters = () => {
+    setStatusFilter('all');
+    setImpactFilter('all');
+    setTypeFilter('all');
+    selectPrompt('');
+    setSearch('');
+  };
+
+  if (!activeBrandId) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <p className="text-muted-foreground">Select a brand to view content opportunities.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">{t('title')}</h1>
+          <p className="text-muted-foreground text-sm">{t('description')}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={() => setWebhookOpen(true)}
+            variant="outline"
+            size="sm"
+            className="gap-2"
+          >
+            <Settings2 className="h-4 w-4" />
+            {t('webhook.title')}
+          </Button>
+          {!isCloud && (
+            <Button
+              onClick={handleGenerate}
+              disabled={generating || loading}
+              size="sm"
+              className="gap-2"
+            >
+              {generating ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : opportunities.length > 0 ? (
+                <RefreshCw className="h-4 w-4" />
+              ) : (
+                <Lightbulb className="h-4 w-4" />
+              )}
+              {generating
+                ? t('generating')
+                : opportunities.length > 0
+                  ? t('regenerate')
+                  : t('generate')}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {loading && opportunities.length === 0 ? (
+        <div className="flex items-center justify-center min-h-[300px]">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      ) : opportunities.length === 0 && !hasActiveFilters ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-16 gap-4">
+            <Lightbulb className="h-12 w-12 text-muted-foreground/40" />
+            <div className="text-center space-y-1">
+              <p className="text-sm font-medium">{t('noOpportunities')}</p>
+              <p className="text-xs text-muted-foreground">{t('noOpportunitiesHint')}</p>
+            </div>
+            {!isCloud ? (
+              <Button onClick={handleGenerate} disabled={generating} size="sm" className="gap-2">
+                {generating ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Lightbulb className="h-4 w-4" />
+                )}
+                {generating ? t('generating') : t('generate')}
+              </Button>
+            ) : (
+              <p className="text-xs text-muted-foreground">{t('autoGeneratedHint')}</p>
+            )}
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <KpiCard
+              title={t('kpi.total')}
+              icon={Lightbulb}
+              value={total}
+              sub={t('kpi.shown', { count: filtered.length })}
+            />
+            <KpiCard
+              title={t('kpi.highImpact')}
+              icon={Zap}
+              value={aggregates.highImpactCount}
+              sub={t('kpi.opportunities')}
+            />
+            <KpiCard
+              title={t('kpi.avgScore')}
+              icon={BarChart3}
+              value={aggregates.avgScore}
+              sub={t('kpi.outOf100')}
+            />
+            <KpiCard
+              title={t('kpi.sentToWorkflow')}
+              icon={Send}
+              value={aggregates.sentCount}
+              sub={t('kpi.sentOrInProgress')}
+            />
+          </div>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-sm font-medium">{t('opportunities')}</CardTitle>
+                  <Badge
+                    variant="outline"
+                    className="text-xs border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                  >
+                    {t('available', { count: total })}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="relative w-48">
+                    <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                    <Input
+                      placeholder={tCommon('search')}
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      aria-label={tCommon('search')}
+                      className="pl-8 h-8 text-xs"
+                    />
+                  </div>
+                  <Select value={statusFilter} onValueChange={(v) => v && setStatusFilter(v)}>
+                    <SelectTrigger className="h-8 w-[130px] text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">{t('filters.allStatuses')}</SelectItem>
+                      <SelectItem value="new">{t('status.new')}</SelectItem>
+                      <SelectItem value="sent">{t('status.sent')}</SelectItem>
+                      <SelectItem value="in_progress">{t('status.in_progress')}</SelectItem>
+                      <SelectItem value="done">{t('status.done')}</SelectItem>
+                      <SelectItem value="dismissed">{t('status.dismissed')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={impactFilter} onValueChange={(v) => v && setImpactFilter(v)}>
+                    <SelectTrigger className="h-8 w-[120px] text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">{t('filters.allImpacts')}</SelectItem>
+                      <SelectItem value="high">{t('impact.high')}</SelectItem>
+                      <SelectItem value="medium">{t('impact.medium')}</SelectItem>
+                      <SelectItem value="low">{t('impact.low')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={typeFilter} onValueChange={(v) => v && setTypeFilter(v)}>
+                    <SelectTrigger className="h-8 w-[110px] text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">{t('filters.allTypes')}</SelectItem>
+                      <SelectItem value="owned">{t('type.owned')}</SelectItem>
+                      <SelectItem value="earned">{t('type.earned')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {showPromptFilter && (
+                    <Combobox
+                      items={promptItems}
+                      value={
+                        promptItems.find((item) => item.value === (promptFilter || ALL_PROMPTS)) ??
+                        null
+                      }
+                      onValueChange={(item: PromptFilterItem | null) =>
+                        selectPrompt(!item || item.value === ALL_PROMPTS ? '' : item.value)
+                      }
+                    >
+                      <ComboboxTrigger className="h-8 w-56 text-xs" title={promptFilterTitle}>
+                        <ComboboxValue placeholder={tCommon('allPrompts')} />
+                      </ComboboxTrigger>
+                      <ComboboxContent>
+                        <ComboboxInput placeholder={tCommon('searchPrompts')} />
+                        <ComboboxList>
+                          <ComboboxEmpty>{tCommon('noPromptsMatch')}</ComboboxEmpty>
+                          <ComboboxCollection>
+                            {(item: PromptFilterItem) => (
+                              <ComboboxItem key={item.value} value={item} title={item.label}>
+                                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                                {item.count !== null && (
+                                  <span className="ml-2 shrink-0 tabular-nums text-muted-foreground">
+                                    {item.count}
+                                  </span>
+                                )}
+                              </ComboboxItem>
+                            )}
+                          </ComboboxCollection>
+                        </ComboboxList>
+                      </ComboboxContent>
+                    </Combobox>
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+            {selectedIds.size > 0 && (
+              <div className="flex items-center gap-2 border-b bg-muted/50 px-4 py-2">
+                <span className="text-xs text-muted-foreground">
+                  {t('bulk.selected', { count: selectedIds.size })}
+                </span>
+                <div className="flex items-center gap-1 ml-auto">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs gap-1.5"
+                    onClick={handleBulkSend}
+                    disabled={bulkSending}
+                  >
+                    {bulkSending ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Send className="h-3 w-3" />
+                    )}
+                    {t('bulk.sendAll')}
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs gap-1.5"
+                    onClick={handleBulkDone}
+                    disabled={bulkSending}
+                  >
+                    <Check className="h-3 w-3" />
+                    {t('status.done')}
+                  </Button>
+
+                  <Dialog>
+                    <DialogTrigger asChild><Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs gap-1.5 text-muted-foreground"
+                          disabled={bulkSending}>
+                      <X className="h-3 w-3" />
+                      {t('bulk.dismissAll')}
+                    </Button></DialogTrigger>
+                    <DialogContent className="sm:max-w-sm">
+                      <DialogHeader>
+                        <DialogTitle>{t('bulk.dismissAllTitle')}</DialogTitle>
+                        <DialogDescription>
+                          {t('bulk.dismissAllConfirm', { count: selectedIds.size })}
+                        </DialogDescription>
+                      </DialogHeader>
+                      <DialogFooter>
+                        <DialogClose asChild><Button variant="outline">
+                          {t('cancel')}
+                        </Button></DialogClose>
+                        <DialogClose asChild><Button variant="destructive" onClick={handleBulkDismiss}>
+                          {t('bulk.dismissAll')}
+                        </Button></DialogClose>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+
+                  {/* Last in the row, and the only destructive-styled trigger:
+                      this one does not move a row, it removes it. */}
+                  <Dialog>
+                    <DialogTrigger asChild><Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs gap-1.5 text-destructive hover:text-destructive"
+                          disabled={bulkSending}>
+                      <Trash2 className="h-3 w-3" />
+                      {t('bulk.deleteAll')}
+                    </Button></DialogTrigger>
+                    <DialogContent className="sm:max-w-sm">
+                      <DialogHeader>
+                        <DialogTitle>{t('bulk.deleteAllTitle')}</DialogTitle>
+                        <DialogDescription>
+                          {t('bulk.deleteAllConfirm', { count: selectedIds.size })}
+                          {selectedWithBrief > 0 && (
+                            <span className="mt-2 block font-medium text-foreground">
+                              {t('bulk.deleteAllBriefWarning', { count: selectedWithBrief })}
+                            </span>
+                          )}
+                        </DialogDescription>
+                      </DialogHeader>
+                      <DialogFooter>
+                        <DialogClose asChild><Button variant="outline">
+                          {t('cancel')}
+                        </Button></DialogClose>
+                        <DialogClose asChild><Button variant="destructive" onClick={handleBulkDelete}>
+                          {t('bulk.deleteAll')}
+                        </Button></DialogClose>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              </div>
+            )}
+            <CardContent className="p-0">
+              <Table className="table-fixed">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-10 pl-4">
+                      <Checkbox
+                        checked={filtered.length > 0 && selectedIds.size === filtered.length}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setSelectedIds(new Set(filtered.map((o) => o.id)));
+                          } else {
+                            setSelectedIds(new Set());
+                          }
+                        }}
+                      />
+                    </TableHead>
+                    <TableHead className="pl-6 w-[40%]">{t('table.action')}</TableHead>
+                    <TableHead className="text-center">{t('table.type')}</TableHead>
+                    <TableHead className="text-center">{t('table.impact')}</TableHead>
+                    <TableHead className="text-center">{t('table.score')}</TableHead>
+                    <TableHead className="text-center">{t('table.status')}</TableHead>
+                    <TableHead className="text-right pr-6">{t('table.actions')}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.map((opp) => (
+                    <TableRow key={opp.id} className="hover:bg-muted/50">
+                      <TableCell className="w-10 pl-4">
+                        <Checkbox
+                          checked={selectedIds.has(opp.id)}
+                          onCheckedChange={(checked) => {
+                            const next = new Set(selectedIds);
+                            if (checked) next.add(opp.id);
+                            else next.delete(opp.id);
+                            setSelectedIds(next);
+                          }}
+                        />
+                      </TableCell>
+                      <TableCell className="pl-6 max-w-0">
+                        <Link
+                          href={`/dashboard/content/${opp.id}`}
+                          className="block hover:underline"
+                        >
+                          <p className="text-sm font-medium line-clamp-1">{opp.title}</p>
+                          {opp.description && (
+                            <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
+                              {opp.description}
+                            </p>
+                          )}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Badge variant="outline" className="text-xs">
+                          {t(`type.${opp.type}` as 'type.owned' | 'type.earned')}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Badge
+                          variant="outline"
+                          className={cn('text-xs', IMPACT_COLORS[opp.impact])}
+                        >
+                          {t(
+                            `impact.${opp.impact}` as
+                              | 'impact.high'
+                              | 'impact.medium'
+                              | 'impact.low',
+                          )}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <span className="tabular-nums font-semibold text-sm">
+                          {Math.round(opp.opportunityScore)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Badge
+                          variant="outline"
+                          className={cn('text-xs whitespace-nowrap', STATUS_COLORS[opp.status])}
+                        >
+                          {t(`status.${opp.status}` as `status.${ContentOpportunityStatus}`)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right pr-6">
+                        <div className="flex items-center justify-end gap-1">
+                          {opp.status === 'new' && (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 text-xs gap-1"
+                                onClick={() => handleSendWebhook(opp.id)}
+                                disabled={sendingId === opp.id}
+                              >
+                                {sendingId === opp.id ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <Send className="h-3 w-3" />
+                                )}
+                                {t('send')}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 text-xs text-muted-foreground"
+                                onClick={() => handleDismiss(opp.id)}
+                                aria-label={t('dismiss')}
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </>
+                          )}
+                          <Link href={`/dashboard/content/${opp.id}`}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              aria-label={t('viewDetails')}
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                            </Button>
+                          </Link>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              {filtered.length === 0 && (
+                <div className="flex flex-col items-center gap-3 py-10 text-center">
+                  <p className="text-sm text-muted-foreground">{t('noResults')}</p>
+                  {hasActiveFilters && (
+                    <Button variant="outline" size="sm" className="gap-1.5" onClick={clearFilters}>
+                      <X className="h-3.5 w-3.5" />
+                      {t('clearFilters')}
+                    </Button>
+                  )}
+                </div>
+              )}
+              <TablePager
+                page={pager.page}
+                totalPages={pager.totalPages}
+                total={total}
+                start={pager.start}
+                end={pager.end}
+                onPage={pager.setPage}
+              />
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      <WebhookSettingsDialog
+        open={webhookOpen}
+        onOpenChange={setWebhookOpen}
+        brandId={activeBrandId}
+      />
+    </div>
+  );
+}

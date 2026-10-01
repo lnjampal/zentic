@@ -1,0 +1,541 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
+import {
+  AlertCircle,
+  ArrowUpDown,
+  CircleDot,
+  ListChecks,
+  Search,
+  Shield,
+  Sparkles,
+  TrendingUp,
+  X,
+} from 'lucide-react';
+import { useBrandStore } from '@/stores/use-brand-store';
+import type { Brand } from '@/types';
+import { getActions, type ActionItem } from '@/lib/actions/action-center';
+import { listMembers, type TeamMember } from '@/lib/actions/team';
+import {
+  ACTION_CATEGORIES,
+  ACTION_IMPACTS,
+  ACTION_SORTS,
+  ACTION_STATUSES,
+  type ActionCategory,
+  type ActionImpact,
+  type ActionSort,
+  type ActionStatus,
+} from '@/lib/action-center/registry';
+import {
+  actionContextTags,
+  actionTexts,
+  comparePriority,
+  memberLabel,
+} from '@/lib/action-center/display';
+import { ActionCenterTabs } from '@/components/action-center/action-center-tabs';
+import { ActionTable } from '@/components/action-center/action-table';
+import { ActionDrawer } from '@/components/action-center/action-drawer';
+import { Button } from '@workspace/ansvisor-design-system/components/ui/button';
+import { Card, CardContent } from '@workspace/ansvisor-design-system/components/ui/card';
+import { Input } from '@workspace/ansvisor-design-system/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@workspace/ansvisor-design-system/components/ui/select';
+import { Skeleton } from '@workspace/ansvisor-design-system/components/ui/skeleton';
+import { cn } from '@workspace/ansvisor-design-system/lib/utils';
+
+const OPEN_STATUSES: ActionStatus[] = ['new', 'in_progress', 'on_hold'];
+
+const isOpen = (action: ActionItem) => OPEN_STATUSES.includes(action.status);
+
+/**
+ * What each summary card counts, one predicate per card.
+ *
+ * The cards used to be numbers with no way back to the rows behind them: "At
+ * Risk 2" above a table of three, and nothing saying which two — At Risk spans
+ * Recover *and* Fix, which neither the card nor the category badges admitted.
+ * Clicking a card now narrows the table to exactly what it counted, and since
+ * the count and the filter read the same predicate they cannot disagree.
+ */
+const CARD_FILTERS = {
+  top: (action: ActionItem) => isOpen(action) && action.impact === 'high',
+  atRisk: (action: ActionItem) =>
+    isOpen(action) && (action.category === 'recover' || action.category === 'fix'),
+  opportunities: (action: ActionItem) => isOpen(action) && action.category === 'growth',
+  inProgress: (action: ActionItem) => action.status === 'in_progress',
+} as const;
+
+type CardFocus = keyof typeof CARD_FILTERS;
+
+export default function ActionCenterActionsPage() {
+  const brand = useBrandStore((s) => s.getActiveBrand());
+  const t = useTranslations('actionCenter.actionsPage');
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">{t('title')}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">{t('subtitle')}</p>
+      </div>
+      <ActionCenterTabs />
+      {brand ? (
+        <ActionsContent key={brand.id} brand={brand} />
+      ) : (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <h2 className="text-lg font-semibold">{t('noBrand.title')}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{t('noBrand.description')}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ActionsContent({ brand }: { brand: Brand }) {
+  const t = useTranslations('actionCenter.actionsPage');
+  const tTexts = useTranslations('actionCenter.actionTexts');
+  const tCategories = useTranslations('actionCenter.actionCategories');
+
+  const [actions, setActions] = useState<ActionItem[] | null>(null);
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  const [category, setCategory] = useState<ActionCategory | 'all'>('all');
+  const [impact, setImpact] = useState<ActionImpact | 'all'>('all');
+  const [status, setStatus] = useState<ActionStatus | 'all'>('all');
+  const [assignee, setAssignee] = useState<string>('all');
+  const [sort, setSort] = useState<ActionSort>('priority');
+  const [search, setSearch] = useState('');
+  const [focus, setFocus] = useState<CardFocus | null>(null);
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // The open drawer lives in the URL (?action=<id>) so that coming BACK from
+  // a signal's page — or refreshing — restores it. replaceState, not push:
+  // opening and closing the drawer must not grow the history stack.
+  const selectAction = (id: string | null) => {
+    setSelectedId(id);
+    const params = new URLSearchParams(window.location.search);
+    if (id) params.set('action', id);
+    else params.delete('action');
+    const query = params.toString();
+    window.history.replaceState(null, '', window.location.pathname + (query ? `?${query}` : ''));
+  };
+
+  const load = useCallback(async () => {
+    setLoadFailed(false);
+    try {
+      setActions(await getActions(brand.id));
+    } catch {
+      setLoadFailed(true);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [brand.id]);
+
+  useEffect(() => {
+    void load();
+    listMembers()
+      .then(setMembers)
+      .catch(() => setMembers([]));
+  }, [load]);
+
+  // Restore the drawer named by the URL once the list is in.
+  useEffect(() => {
+    if (!actions) return;
+    const id = new URLSearchParams(window.location.search).get('action');
+    if (id && actions.some((action) => action.id === id)) setSelectedId(id);
+  }, [actions]);
+
+  const selected = useMemo(
+    () => (actions ?? []).find((action) => action.id === selectedId) ?? null,
+    [actions, selectedId],
+  );
+
+  const visible = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    const filtered = (actions ?? []).filter((action) => {
+      if (focus && !CARD_FILTERS[focus](action)) return false;
+      if (category !== 'all' && action.category !== category) return false;
+      if (impact !== 'all' && action.impact !== impact) return false;
+      if (status !== 'all' && action.status !== status) return false;
+      if (assignee !== 'all') {
+        if (assignee === 'unassigned' ? action.assignee !== null : action.assignee?.id !== assignee)
+          return false;
+      }
+      if (needle) {
+        const texts = actionTexts(action, tTexts);
+        const tags = actionContextTags(action, t).join(' ');
+        if (!`${texts.title} ${texts.description} ${tags}`.toLowerCase().includes(needle))
+          return false;
+      }
+      return true;
+    });
+    return filtered.sort((a, b) => {
+      switch (sort) {
+        case 'impact':
+          return comparePriority(a, b);
+        case 'newest':
+          return b.createdAt.localeCompare(a.createdAt);
+        case 'due_date':
+          return (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999');
+        case 'updated':
+          return b.updatedAt.localeCompare(a.updatedAt);
+        default:
+          return comparePriority(a, b);
+      }
+    });
+  }, [actions, focus, category, impact, status, assignee, search, sort, tTexts, t]);
+
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<ActionCategory, number>();
+    for (const action of actions ?? []) {
+      counts.set(action.category, (counts.get(action.category) ?? 0) + 1);
+    }
+    return counts;
+  }, [actions]);
+
+  const summary = useMemo(() => {
+    const all = actions ?? [];
+    const open = all.filter(isOpen);
+    const impacts = open.map((action) => action.impact);
+    return {
+      top: all.filter(CARD_FILTERS.top).length,
+      atRisk: all.filter(CARD_FILTERS.atRisk).length,
+      opportunities: all.filter(CARD_FILTERS.opportunities).length,
+      inProgress: all.filter(CARD_FILTERS.inProgress).length,
+      potential: impacts.includes('high') ? 'high' : impacts.includes('medium') ? 'medium' : 'low',
+      hasOpen: open.length > 0,
+    };
+  }, [actions]);
+
+  const hasActiveFilters =
+    focus !== null ||
+    category !== 'all' ||
+    impact !== 'all' ||
+    status !== 'all' ||
+    assignee !== 'all' ||
+    search !== '';
+
+  const clearFilters = () => {
+    setFocus(null);
+    setCategory('all');
+    setImpact('all');
+    setStatus('all');
+    setAssignee('all');
+    setSearch('');
+  };
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-24 w-full" />
+          ))}
+        </div>
+        <div className="space-y-2 rounded-lg border p-4">
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} className="h-16 w-full" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (loadFailed) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-20 text-center">
+        <AlertCircle className="h-8 w-8 text-muted-foreground" />
+        <h2 className="mt-4 font-semibold">{t('error.title')}</h2>
+        <Button variant="outline" className="mt-4" onClick={() => void load()}>
+          {t('error.retry')}
+        </Button>
+      </div>
+    );
+  }
+
+  if (!actions?.length) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-20 text-center">
+        <ListChecks className="h-8 w-8 text-muted-foreground" />
+        <h2 className="mt-4 font-semibold">{t('empty.title')}</h2>
+        <p className="mt-1 max-w-md text-sm text-muted-foreground">{t('empty.description')}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        {/* Each card toggles itself as the table's filter, so a count always
+            has a way back to the rows it came from. */}
+        <SummaryCard
+          icon={CircleDot}
+          label={t('cards.top')}
+          value={summary.top}
+          sub={t('cards.topSub')}
+          isActive={focus === 'top'}
+          onClick={() => setFocus(focus === 'top' ? null : 'top')}
+        />
+        <SummaryCard
+          icon={Shield}
+          label={t('cards.atRisk')}
+          value={summary.atRisk}
+          sub={t('cards.atRiskSub')}
+          isActive={focus === 'atRisk'}
+          onClick={() => setFocus(focus === 'atRisk' ? null : 'atRisk')}
+        />
+        <SummaryCard
+          icon={Sparkles}
+          label={t('cards.opportunities')}
+          value={summary.opportunities}
+          sub={t('cards.opportunitiesSub')}
+          isActive={focus === 'opportunities'}
+          onClick={() => setFocus(focus === 'opportunities' ? null : 'opportunities')}
+        />
+        <SummaryCard
+          icon={ArrowUpDown}
+          label={t('cards.inProgress')}
+          value={summary.inProgress}
+          sub={t('cards.inProgressSub')}
+          isActive={focus === 'inProgress'}
+          onClick={() => setFocus(focus === 'inProgress' ? null : 'inProgress')}
+        />
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-md border bg-muted/40">
+                <TrendingUp className="h-3.5 w-3.5 text-muted-foreground" />
+              </div>
+              <p className="text-xs font-medium text-muted-foreground">{t('cards.impact')}</p>
+            </div>
+            <p className="mt-2 text-2xl font-bold">
+              {summary.hasOpen ? t(`impact.${summary.potential}`) : '—'}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{t('cards.impactSub')}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <CategoryPill
+            label={t('allActions')}
+            count={actions.length}
+            isActive={category === 'all'}
+            onClick={() => setCategory('all')}
+          />
+          {ACTION_CATEGORIES.filter((key) => (categoryCounts.get(key) ?? 0) > 0).map((key) => (
+            <CategoryPill
+              key={key}
+              label={tCategories(key)}
+              count={categoryCounts.get(key) ?? 0}
+              isActive={category === key}
+              onClick={() => setCategory(key)}
+            />
+          ))}
+        </div>
+        <Select
+          value={sort}
+          onValueChange={(v) => setSort((v ?? 'priority') as ActionSort)}
+        >
+          <SelectTrigger className="h-8 w-44 text-xs">
+            <span className="text-muted-foreground">{t('sort.label')}:</span>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {ACTION_SORTS.map((key) => (
+              <SelectItem key={key} value={key}>
+                {t(`sort.${key}`)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <FilterSelect
+          label={t('filters.impact')}
+          value={impact}
+          onChange={(v) => setImpact(v as ActionImpact | 'all')}
+          options={ACTION_IMPACTS.map((v) => ({ value: v, label: t(`impact.${v}`) }))}
+          allLabel={t('filters.all')}
+        />
+        <FilterSelect
+          label={t('filters.status')}
+          value={status}
+          onChange={(v) => setStatus(v as ActionStatus | 'all')}
+          options={ACTION_STATUSES.map((v) => ({ value: v, label: t(`status.${v}`) }))}
+          allLabel={t('filters.all')}
+        />
+        <FilterSelect
+          label={t('filters.assignee')}
+          value={assignee}
+          onChange={setAssignee}
+          options={[
+            { value: 'unassigned', label: t('filters.unassigned') },
+            ...members.map((member) => ({
+              value: member.userId,
+              label: memberLabel(member),
+            })),
+          ]}
+          allLabel={t('filters.all')}
+        />
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={t('filters.search')}
+            className="h-8 w-56 pl-8 text-xs"
+          />
+        </div>
+        {hasActiveFilters && (
+          <Button variant="ghost" size="sm" className="text-xs" onClick={clearFilters}>
+            <X className="h-3.5 w-3.5" />
+            {t('filters.clear')}
+          </Button>
+        )}
+      </div>
+
+      {visible.length > 0 ? (
+        <ActionTable actions={visible} onSelect={(action) => selectAction(action.id)} />
+      ) : (
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-16 text-center">
+          <p className="text-sm text-muted-foreground">{t('noResults')}</p>
+          <Button variant="outline" size="sm" className="mt-3" onClick={clearFilters}>
+            {t('filters.clear')}
+          </Button>
+        </div>
+      )}
+
+      <ActionDrawer
+        brandId={brand.id}
+        action={selected}
+        members={members}
+        onOpenChange={(open) => {
+          if (!open) selectAction(null);
+        }}
+        onChanged={() => void load()}
+      />
+    </div>
+  );
+}
+
+function SummaryCard({
+  icon: Icon,
+  label,
+  value,
+  sub,
+  isActive,
+  onClick,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: number;
+  sub: string;
+  /** Omit both to render a card that only reports, like Potential Impact. */
+  isActive?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <Card
+      {...(onClick
+        ? {
+            role: 'button' as const,
+            tabIndex: 0,
+            'aria-pressed': isActive,
+            onClick,
+            onKeyDown: (event: React.KeyboardEvent) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onClick();
+              }
+            },
+            className: cn(
+              'cursor-pointer transition-colors hover:border-foreground/30',
+              isActive && 'border-foreground/60 bg-muted/40',
+            ),
+          }
+        : {})}
+    >
+      <CardContent className="p-4">
+        <div className="flex items-center gap-2">
+          <div className="flex h-7 w-7 items-center justify-center rounded-md border bg-muted/40">
+            <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+          </div>
+          <p className="text-xs font-medium text-muted-foreground">{label}</p>
+        </div>
+        <p className="mt-2 text-2xl font-bold tabular-nums">{value}</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function FilterSelect({
+  label,
+  value,
+  onChange,
+  options,
+  allLabel,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string }[];
+  allLabel: string;
+}) {
+  const items = [{ value: 'all', label: allLabel }, ...options];
+  return (
+    <Select value={value} onValueChange={(v) => onChange(v ?? 'all')}>
+      <SelectTrigger className="h-8 w-36 text-xs">
+        <span className="text-muted-foreground">{label}:</span>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="all">{allLabel}</SelectItem>
+        {options.map((option) => (
+          <SelectItem key={option.value} value={option.value}>
+            {option.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function CategoryPill({
+  label,
+  count,
+  isActive,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  isActive: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={isActive}
+      className={cn(
+        'flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium transition-colors',
+        isActive
+          ? 'border-foreground/20 bg-muted text-foreground'
+          : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+      )}
+    >
+      {label}
+      <span className="text-xs text-muted-foreground">{count}</span>
+    </button>
+  );
+}

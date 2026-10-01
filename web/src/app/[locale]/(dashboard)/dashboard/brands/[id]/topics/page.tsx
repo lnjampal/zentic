@@ -1,0 +1,301 @@
+'use client';
+
+import { use, useCallback, useEffect, useState } from 'react';
+import {
+  createTopic,
+  deleteTopic,
+  getPromptCountByTopic,
+  getTopics,
+  updateTopic,
+} from '@/lib/actions/topic';
+import type { Topic } from '@/types';
+import { Button } from '@workspace/ansvisor-design-system/components/ui/button';
+import { Input } from '@workspace/ansvisor-design-system/components/ui/input';
+import { Label } from '@workspace/ansvisor-design-system/components/ui/label';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@workspace/ansvisor-design-system/components/ui/card';
+import { Separator } from '@workspace/ansvisor-design-system/components/ui/separator';
+import { toast } from 'sonner';
+import { Check, Loader2, Lock, Pencil, Plus, Tag, Trash2, X } from 'lucide-react';
+import { useUserRole } from '@/hooks/use-user-role';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@workspace/ansvisor-design-system/components/ui/dialog';
+
+interface PageProps {
+  params: Promise<{ id: string }>;
+}
+
+export default function BrandTopicsPage({ params }: PageProps) {
+  const { id: brandId } = use(params);
+
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [promptCounts, setPromptCounts] = useState<Record<string, number>>({});
+  const [isLoading, setIsLoading] = useState(true);
+  const [isAdding, setIsAdding] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const { canManage } = useUserRole();
+
+  const load = useCallback(
+    async (isCancelled?: () => boolean) => {
+      setIsLoading(true);
+      try {
+        const data = await getTopics(brandId);
+        if (isCancelled?.()) return;
+        setTopics(data);
+        const counts: Record<string, number> = {};
+        await Promise.all(
+          data.map(async (t) => {
+            counts[t.id] = await getPromptCountByTopic(brandId, t.id);
+          }),
+        );
+        if (isCancelled?.()) return;
+        setPromptCounts(counts);
+      } catch {
+        if (isCancelled?.()) return;
+        toast.error('Failed to load topics');
+      } finally {
+        if (!isCancelled?.()) setIsLoading(false);
+      }
+    },
+    [brandId],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    load(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
+  }, [load]);
+
+  const handleAdd = async () => {
+    const name = newName.trim();
+    if (!name) return;
+    if (topics.some((t) => t.name.toLowerCase() === name.toLowerCase())) {
+      toast.error('This topic already exists');
+      return;
+    }
+    setIsAdding(true);
+    try {
+      const added = await createTopic(brandId, name);
+      setTopics((prev) => [...prev, added]);
+      setNewName('');
+      toast.success(`"${added.name}" topic added`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to add topic');
+    } finally {
+      setIsAdding(false);
+    }
+  };
+
+  const handleEdit = async (id: string) => {
+    const name = editName.trim();
+    if (!name) return;
+    if (topics.some((t) => t.id !== id && t.name.toLowerCase() === name.toLowerCase())) {
+      toast.error('This topic already exists');
+      return;
+    }
+    try {
+      const updated = await updateTopic(id, name);
+      setTopics((prev) => prev.map((t) => (t.id === id ? updated : t)));
+      setEditingId(null);
+      toast.success('Topic updated');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update topic');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteTopic(id);
+      setTopics((prev) => prev.filter((t) => t.id !== id));
+      toast.success('Topic removed');
+    } catch {
+      toast.error('Failed to remove topic');
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Tag className="h-4 w-4" />
+          Topics
+        </CardTitle>
+        <CardDescription>
+          Manage the topics used to categorize your prompts. Topics are assigned to prompts during
+          creation.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <>
+            {topics.length > 0 && (
+              <div className="space-y-2">
+                {topics.map((topic) => (
+                  <div
+                    key={topic.id}
+                    className="flex items-center gap-3 rounded-lg border px-3 py-2.5"
+                  >
+                    <Tag className="h-4 w-4 shrink-0 text-muted-foreground" />
+
+                    {editingId === topic.id ? (
+                      <div className="flex flex-1 items-center gap-2">
+                        <Input
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleEdit(topic.id);
+                            if (e.key === 'Escape') setEditingId(null);
+                          }}
+                          className="h-8 text-sm"
+                          autoFocus
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 shrink-0"
+                          onClick={() => handleEdit(topic.id)}
+                          aria-label="Save topic changes"
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 shrink-0"
+                          onClick={() => setEditingId(null)}
+                          aria-label="Cancel edit"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="flex-1 truncate text-sm font-medium">{topic.name}</p>
+                        {canManage && (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 shrink-0"
+                              onClick={() => {
+                                setEditingId(topic.id);
+                                setEditName(topic.name);
+                              }}
+                              aria-label="Edit topic"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Dialog>
+                              <DialogTrigger asChild><Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 shrink-0 text-destructive hover:text-destructive"
+                                    aria-label="Delete topic">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button></DialogTrigger>
+                              <DialogContent className="sm:max-w-sm">
+                                <DialogHeader>
+                                  <DialogTitle>Delete Topic</DialogTitle>
+                                  <DialogDescription>
+                                    Are you sure you want to delete &quot;{topic.name}&quot;?
+                                    {(promptCounts[topic.id] ?? 0) > 0
+                                      ? ` ${promptCounts[topic.id]} prompt${promptCounts[topic.id] === 1 ? '' : 's'} using this topic will become uncategorized.`
+                                      : ' No prompts are using this topic.'}
+                                  </DialogDescription>
+                                </DialogHeader>
+                                <DialogFooter>
+                                  <DialogClose asChild><Button variant="outline">
+                                    Cancel
+                                  </Button></DialogClose>
+                                  <DialogClose asChild><Button
+                                        variant="destructive"
+                                        onClick={() => handleDelete(topic.id)}>
+                                    Delete
+                                  </Button></DialogClose>
+                                </DialogFooter>
+                              </DialogContent>
+                            </Dialog>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {topics.length === 0 && (
+              <div className="rounded-lg border border-dashed py-8 text-center">
+                <p className="text-sm text-muted-foreground">
+                  No topics yet. Add your first topic below.
+                </p>
+              </div>
+            )}
+
+            {canManage ? (
+              <>
+                <Separator />
+
+                <div id="add-topic" className="space-y-2 scroll-mt-24">
+                  <Label className="text-sm font-medium">Add Topic</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="e.g. Industry, Comparison, How-to..."
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && newName.trim() && handleAdd()}
+                      className="flex-1"
+                    />
+                    <Button
+                      variant="outline"
+                      onClick={handleAdd}
+                      disabled={isAdding || !newName.trim()}
+                      className="gap-1.5 shrink-0"
+                    >
+                      {isAdding ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Plus className="h-4 w-4" />
+                      )}
+                      Add
+                    </Button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              // Read-only banner — non-admin / non-manager roles can't INSERT
+              // into topics at the DB layer (RLS). Hide the Add form and
+              // surface the reason instead of letting them hit a generic
+              // "Failed to add topic" toast.
+              <div className="flex items-start gap-3 rounded-lg border bg-muted/40 p-3 text-sm">
+                <Lock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <div>
+                  <p className="font-medium">Read-only access</p>
+                  <p className="mt-1 text-muted-foreground">
+                    Your role can view topics but not add, rename, or delete them. Ask an admin or
+                    manager to make changes.
+                  </p>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

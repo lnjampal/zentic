@@ -1,0 +1,1749 @@
+'use client';
+
+import { useState, useRef, useEffect, useCallback, useId } from 'react';
+import { Link, useRouter } from '@/i18n/navigation';
+import { useSearchParams } from 'next/navigation';
+import { createPortal } from 'react-dom';
+import { useTranslations } from 'next-intl';
+import dynamic from 'next/dynamic';
+import { Skeleton } from '@workspace/ansvisor-design-system/components/ui/skeleton';
+const VisibilityRateTrendChart = dynamic(
+  () => import('./_charts').then((m) => m.VisibilityRateTrendChart),
+  {
+    ssr: false,
+    loading: () => <Skeleton className="h-64 w-full" />,
+  },
+);
+
+const CompetitorLeaderboard = dynamic(
+  () => import('./_charts').then((m) => m.CompetitorLeaderboard),
+  {
+    ssr: false,
+    loading: () => <Skeleton className="h-64 w-full" />,
+  },
+);
+
+const ShareOfVoicePlatformChart = dynamic(
+  () => import('./_charts').then((m) => m.ShareOfVoicePlatformChart),
+  {
+    ssr: false,
+    loading: () => <Skeleton className="h-64 w-full" />,
+  },
+);
+
+const ShareOfVoiceTrendChart = dynamic(
+  () => import('./_charts').then((m) => m.ShareOfVoiceTrendChart),
+  {
+    ssr: false,
+    loading: () => <Skeleton className="h-64 w-full" />,
+  },
+);
+import { MetricBreakdownSheet } from './_metric-breakdown-sheet';
+import { FormulaDialog } from './_formula-dialog';
+import { useBrandStore } from '@/stores/use-brand-store';
+import {
+  getInsightsData,
+  getVisibilityRateTrend,
+  getTrackingWindow,
+  type TrackingWindow,
+  type VisibilityRateTrendData,
+  triggerTrackingCheck,
+  getJobStatus,
+  cancelTrackingJob,
+  getBrandPrompts,
+  exportPromptResults,
+  type InsightsSummary,
+  type TrackedPromptsKpi,
+  type VisibilityRateKpi,
+  type CompetitorComparisonData,
+  type ShareOfVoiceData,
+  type InsightsRecommendations,
+  type TrackingJobStatus,
+  type BreakdownMetric,
+} from '@/lib/actions/tracking';
+import { getTopics } from '@/lib/actions/topic';
+import { MODEL_PROVIDER_LABELS, PLATFORM_LABELS } from '@/config/platform-labels';
+import { formatRegionDisplay } from '@/lib/region';
+import type { Topic } from '@/types';
+import {
+  ALL_DATE_PRESETS,
+  DateRangeFilter,
+  type DateRangePreset,
+} from '@/components/filters/date-range-filter';
+import { Card, CardContent, CardHeader, CardTitle } from '@workspace/ansvisor-design-system/components/ui/card';
+import { Badge } from '@workspace/ansvisor-design-system/components/ui/badge';
+import { Button } from '@workspace/ansvisor-design-system/components/ui/button';
+import { buttonVariants } from '@workspace/ansvisor-design-system/lib/button-variants';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@workspace/ansvisor-design-system/components/ui/dialog';
+import {
+  BarChart3,
+  CalendarX2,
+  Eye,
+  HelpCircle,
+  Play,
+  TrendingUp,
+  TrendingDown,
+  Quote,
+  Zap,
+  AlertCircle,
+  Loader2,
+  FlaskConical,
+  PieChart,
+  Users,
+  StopCircle,
+  ArrowRight,
+  ArrowUpRight,
+  Download,
+  FileText,
+  Layers,
+  Lightbulb,
+  Sparkles,
+  Tag,
+} from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@workspace/ansvisor-design-system/components/ui/select';
+import { cn } from '@workspace/ansvisor-design-system/lib/utils';
+import { getAIProviderDisplayName, resolveAIProvider } from '@/components/ai-provider-avatar';
+import { usePlanContext } from '@/components/providers/plan-provider';
+import { formatCompactNumber } from '@/lib/format';
+import { toast } from 'sonner';
+
+// ─── Filter Types ─────────────────────────────────────────────────────────────
+
+// The preset vocabulary is shared with the control that renders it (#713), so
+// a page cannot drift from the options it actually offers.
+type DatePreset = DateRangePreset;
+
+interface InsightsFilters {
+  datePreset: DatePreset;
+  dateFrom: string;
+  dateTo: string;
+  region: string;
+  model: string;
+  topic: string;
+}
+
+const DEFAULT_FILTERS: InsightsFilters = {
+  datePreset: '24h',
+  dateFrom: '',
+  dateTo: '',
+  region: '',
+  model: '',
+  topic: '',
+};
+
+const INSIGHT_EXPORT_HEADERS = [
+  'created_at',
+  'prompt',
+  'topic',
+  'platform',
+  'model',
+  'region',
+  'mention_count',
+  'citation_count',
+  'visibility_score',
+  'sentiment',
+  'citation_urls',
+  'competitor_mentions',
+];
+
+/**
+ * Every preset except 24h describes whole UTC calendar days, carried in
+ * `days` — that is what lets the aggregate actions answer from the daily
+ * rollup tables (00066) instead of rescanning the brand's history. The
+ * timestamp fields are kept in step for the paths that still take
+ * timestamps (CSV export, topic-filtered raw fallbacks), so both paths
+ * describe the same window.
+ *
+ * A preset window is the trailing N calendar days ending today: numbers
+ * move when a tracking run completes, not continuously as the clock's
+ * trailing edge slides. 24h keeps its rolling window — it is anchored to
+ * the last completed run downstream and stays on the raw path.
+ */
+function getDateRange(
+  preset: DatePreset,
+  custom: { from: string; to: string },
+): { dateFrom?: string; dateTo?: string; days?: { dayFrom?: string; dayTo?: string } } {
+  if (preset === 'all') return { dateFrom: undefined, dateTo: undefined, days: {} };
+  if (preset === 'custom') {
+    return {
+      dateFrom: custom.from ? `${custom.from}T00:00:00.000Z` : undefined,
+      dateTo: custom.to ? `${custom.to}T23:59:59.999Z` : undefined,
+      days: { dayFrom: custom.from || undefined, dayTo: custom.to || undefined },
+    };
+  }
+  if (preset === '24h') {
+    const from = new Date();
+    from.setHours(from.getHours() - 24);
+    return { dateFrom: from.toISOString(), dateTo: undefined };
+  }
+  const days = preset === '7d' ? 7 : preset === '30d' ? 30 : 90;
+  const to = new Date();
+  const from = new Date(to);
+  from.setUTCDate(from.getUTCDate() - (days - 1));
+  const dayFrom = from.toISOString().slice(0, 10);
+  const dayTo = to.toISOString().slice(0, 10);
+  return { dateFrom: `${dayFrom}T00:00:00.000Z`, dateTo: undefined, days: { dayFrom, dayTo } };
+}
+
+// ─── Info Tooltip ─────────────────────────────────────────────────────────────
+
+function InfoTip({ content }: { content: string }) {
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const ref = useRef<HTMLSpanElement>(null);
+  const tooltipId = useId();
+
+  function show() {
+    const r = ref.current?.getBoundingClientRect();
+    if (r) setPos({ x: r.left + r.width / 2, y: r.bottom + 6 });
+  }
+
+  function hide() {
+    setPos(null);
+  }
+
+  return (
+    <>
+      <span
+        ref={ref}
+        tabIndex={0}
+        aria-label="More information"
+        aria-describedby={pos ? tooltipId : undefined}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') hide();
+        }}
+        className="inline-flex items-center cursor-help rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <HelpCircle className="h-3 w-3 text-muted-foreground/60 hover:text-muted-foreground transition-colors" />
+      </span>
+      {pos &&
+        createPortal(
+          <div
+            id={tooltipId}
+            role="tooltip"
+            style={{ left: pos.x, top: pos.y, transform: 'translateX(-50%)' }}
+            className="pointer-events-none fixed z-[9999] w-56 rounded-md border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md"
+          >
+            {content}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+// ─── Delta Badge ──────────────────────────────────────────────────────────────
+
+function DeltaBadge({ delta, suffix = '%' }: { delta: number | null; suffix?: string }) {
+  if (delta === null) return null;
+  if (delta === 0) return <span className="text-xs text-muted-foreground">— 0{suffix}</span>;
+  const pos = delta > 0;
+  return (
+    <span
+      className={cn(
+        'flex items-center gap-0.5 text-xs font-medium',
+        pos ? 'text-green-600 dark:text-green-400' : 'text-red-500',
+      )}
+    >
+      {pos ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+      {pos ? '+' : ''}
+      {delta}
+      {suffix}
+    </span>
+  );
+}
+
+function CountDeltaBadge({
+  current,
+  previous,
+  delta,
+}: {
+  current: number;
+  previous: number | null;
+  delta: number | null;
+}) {
+  if (previous === 0 && current > 0) {
+    return (
+      <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+        +{current.toLocaleString()} new
+      </span>
+    );
+  }
+  return <DeltaBadge delta={delta} />;
+}
+
+// ─── KPI Card ─────────────────────────────────────────────────────────────────
+
+function KpiCard({
+  title,
+  tooltip,
+  icon: Icon,
+  value,
+  sub,
+  subVariant = 'muted',
+  onClick,
+}: {
+  title: string;
+  tooltip: string;
+  icon: React.ElementType;
+  value: React.ReactNode;
+  sub: React.ReactNode;
+  subVariant?: 'muted' | 'positive';
+  onClick?: () => void;
+}) {
+  const clickable = typeof onClick === 'function';
+  return (
+    <Card
+      onClick={clickable ? onClick : undefined}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      aria-label={clickable ? `${title} — view breakdown` : undefined}
+      title={clickable ? 'Click to see breakdown' : undefined}
+      onKeyDown={
+        clickable
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick?.();
+              }
+            }
+          : undefined
+      }
+      className={cn(
+        'group relative',
+        clickable &&
+          'cursor-pointer transition-all duration-150 hover:border-foreground/30 hover:shadow-md hover:-translate-y-0.5 hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+      )}
+    >
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+        <CardTitle className="flex items-center gap-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          {title}
+          <InfoTip content={tooltip} />
+        </CardTitle>
+        <div className="relative flex h-4 w-4 items-center justify-center">
+          <Icon
+            className={cn(
+              'h-3.5 w-3.5 text-muted-foreground transition-opacity',
+              clickable && 'group-hover:opacity-0',
+            )}
+          />
+          {clickable && (
+            <ArrowUpRight
+              className="absolute h-4 w-4 text-foreground opacity-0 transition-opacity group-hover:opacity-100"
+              aria-hidden
+            />
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="text-3xl font-bold">{value}</div>
+        <p
+          className={cn(
+            'text-xs mt-1 flex items-center gap-0.5',
+            subVariant === 'positive'
+              ? 'text-green-600 dark:text-green-400'
+              : 'text-muted-foreground',
+          )}
+        >
+          {sub}
+        </p>
+        {clickable && (
+          <p className="mt-2 flex items-center gap-1 text-[10px] font-medium text-muted-foreground/70 opacity-0 transition-opacity group-hover:opacity-100">
+            View breakdown
+            <ArrowUpRight className="h-2.5 w-2.5" />
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Run Single Prompt Dialog ─────────────────────────────────────────────────
+
+function RunSinglePromptDialog({
+  brandId,
+  open,
+  onClose,
+  onJobStarted,
+}: {
+  brandId: string;
+  open: boolean;
+  onClose: () => void;
+  onJobStarted: (jobId: string) => void;
+}) {
+  const [prompts, setPrompts] = useState<
+    { id: string; text: string; category?: string; platforms: string[] }[]
+  >([]);
+  const [loading, setLoading] = useState(false);
+  const [runningId, setRunningId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    getBrandPrompts(brandId)
+      .then(setPrompts)
+      .catch(() => toast.error('Failed to load prompts'))
+      .finally(() => setLoading(false));
+  }, [open, brandId]);
+
+  const handleRun = async (promptId: string) => {
+    setRunningId(promptId);
+    try {
+      const { jobId } = await triggerTrackingCheck(brandId, { promptId });
+      onClose();
+      onJobStarted(jobId);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to run prompt');
+    } finally {
+      setRunningId(null);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-lg max-h-[70vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <FlaskConical className="h-4 w-4" />
+            Run Single Prompt
+          </DialogTitle>
+          <p className="text-sm text-muted-foreground">
+            Pick a prompt to test. Only that prompt will run across your enabled platforms.
+          </p>
+        </DialogHeader>
+
+        <div className="space-y-2 pt-2">
+          {loading && (
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-14 w-full" />
+              ))}
+            </div>
+          )}
+
+          {!loading && prompts.length === 0 && (
+            <p className="text-sm text-muted-foreground py-6 text-center">
+              No active prompts found. Add prompts in brand settings first.
+            </p>
+          )}
+
+          {!loading &&
+            prompts.map((p) => (
+              <div
+                key={p.id}
+                className="flex items-center gap-3 rounded-lg border p-3 hover:bg-muted/50 transition-colors"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium line-clamp-2">{p.text}</p>
+                  {p.category && (
+                    <Badge variant="outline" className="text-[10px] mt-1">
+                      {p.category}
+                    </Badge>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 shrink-0"
+                  disabled={runningId !== null}
+                  onClick={() => handleRun(p.id)}
+                >
+                  {runningId === p.id ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Play className="h-3.5 w-3.5" />
+                  )}
+                  Run
+                </Button>
+              </div>
+            ))}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Filter Bar ───────────────────────────────────────────────────────────────
+
+function FilterBar({
+  filters,
+  onChange,
+  availableRegions,
+  availableModels,
+  availableTopics,
+}: {
+  filters: InsightsFilters;
+  onChange: (f: InsightsFilters) => void;
+  availableRegions: string[];
+  availableModels: string[];
+  availableTopics: Topic[];
+}) {
+  const t = useTranslations('common');
+  const set = (patch: Partial<InsightsFilters>) => onChange({ ...filters, ...patch });
+
+  return (
+    <div className="flex flex-wrap items-end gap-3">
+      <DateRangeFilter
+        value={filters.datePreset}
+        presets={ALL_DATE_PRESETS as readonly DatePreset[]}
+        onChange={(datePreset) => set({ datePreset })}
+        from={filters.dateFrom}
+        to={filters.dateTo}
+        onFromChange={(dateFrom) => set({ dateFrom })}
+        onToChange={(dateTo) => set({ dateTo })}
+      />
+
+      {/* Topic filter */}
+      {availableTopics.length > 0 && (
+        <div>
+          <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+            {t('topic')}
+          </label>
+          <Select
+            value={filters.topic || ''}
+            onValueChange={(v) => set({ topic: !v || v === '__all__' ? '' : v })}
+          >
+            <SelectTrigger className="h-8 w-40 text-xs">
+              <SelectValue placeholder={t('allTopics')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">{t('allTopics')}</SelectItem>
+              {availableTopics.map((t) => (
+                <SelectItem key={t.id} value={t.id}>
+                  {t.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {/* Region filter */}
+      <div>
+        <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+          {t('region')}
+        </label>
+        <Select
+          value={filters.region || ''}
+          onValueChange={(v) => set({ region: !v || v === '__all__' ? '' : v })}
+        >
+          <SelectTrigger className="h-8 w-48 text-xs">
+            <SelectValue placeholder={t('allRegions')} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">{t('allRegions')}</SelectItem>
+            {availableRegions.map((r) => (
+              <SelectItem key={r} value={r}>
+                {formatRegionDisplay(r)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Model filter */}
+      <div>
+        <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+          {t('aiModel')}
+        </label>
+        <Select
+          value={filters.model || ''}
+          onValueChange={(v) => set({ model: !v || v === '__all__' ? '' : v })}
+        >
+          <SelectTrigger className="h-8 w-44 text-xs">
+            <SelectValue placeholder={t('allPlatforms')} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">{t('allPlatforms')}</SelectItem>
+            {availableModels.map((m) => {
+              // m is a comma-separated slug list representing a provider family
+              const firstSlug = m.split(',')[0];
+              return (
+                <SelectItem key={m} value={m}>
+                  {MODEL_PROVIDER_LABELS[firstSlug] ??
+                    PLATFORM_LABELS[firstSlug] ??
+                    getAIProviderDisplayName(resolveAIProvider(firstSlug))}
+                </SelectItem>
+              );
+            })}
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+}
+
+// ─── Loading Skeleton ─────────────────────────────────────────────────────────
+
+function InsightsSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-64" />
+          <Skeleton className="h-4 w-80" />
+        </div>
+        <Skeleton className="h-10 w-32" />
+      </div>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <Card key={i}>
+            <CardContent className="pt-6 space-y-2">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-8 w-16" />
+              <Skeleton className="h-3 w-32" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      <Card>
+        <CardContent className="pt-6">
+          <Skeleton className="h-48 w-full" />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ─── Empty State ──────────────────────────────────────────────────────────────
+
+function EmptyState({
+  onRunPrompts,
+  isRunning,
+  isCloud,
+}: {
+  onRunPrompts: () => void;
+  isRunning: boolean;
+  isCloud: boolean;
+}) {
+  const t = useTranslations('insights');
+  return (
+    <div className="flex flex-col items-center justify-center py-20 text-center">
+      <BarChart3 className="h-12 w-12 text-muted-foreground/40 mb-4" />
+      <h2 className="text-lg font-semibold">No tracking data yet</h2>
+      <p className="text-muted-foreground text-sm mt-1 max-w-md">
+        Run your prompts through AI platforms to see how your brand appears in AI-generated
+        responses.
+      </p>
+      {!isCloud && (
+        <Button onClick={onRunPrompts} disabled={isRunning} className="mt-6 gap-2">
+          {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+          {t('runPromptsNow')}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function NoDataForPeriod({ datePreset, onReset }: { datePreset: DatePreset; onReset: () => void }) {
+  const labels: Record<DatePreset, string> = {
+    '24h': 'last 24 hours',
+    '7d': 'last 7 days',
+    '30d': 'last 30 days',
+    '90d': 'last 90 days',
+    all: 'selected period',
+    custom: 'selected period',
+  };
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-center">
+      <CalendarX2 className="h-10 w-10 text-muted-foreground/40 mb-3" />
+      <h3 className="text-base font-semibold">No results for the {labels[datePreset]}</h3>
+      <p className="text-muted-foreground text-sm mt-1 max-w-sm">
+        There is tracking data available in other time periods. Try a wider range or switch to
+        &quot;All time&quot;.
+      </p>
+      <Button variant="outline" size="sm" className="mt-4" onClick={onReset}>
+        Show all data
+      </Button>
+    </div>
+  );
+}
+
+// ─── Recommendations ──────────────────────────────────────────────────────────
+
+/** Teaser targets. Topic suggestions live on the Topics page (#463) — its
+ *  card expands + scrolls itself for this hash; the prompt-suggestions card
+ *  lives on the Prompts page's default All Prompts tab and does the same. */
+const TOPIC_OPPORTUNITIES_HREF = '/dashboard/topics#topic-opportunities';
+const PROMPT_OPPORTUNITIES_HREF = '/dashboard/prompts?tab=suggestions';
+
+function RecommendationCard({
+  title,
+  icon: Icon,
+  href,
+  emptyText,
+  children,
+  isEmpty,
+}: {
+  title: string;
+  icon: React.ElementType;
+  href: string;
+  emptyText: string;
+  children: React.ReactNode;
+  isEmpty: boolean;
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="flex items-center gap-2 text-sm font-medium">
+            <Icon className="h-4 w-4 text-primary" />
+            {title}
+          </CardTitle>
+          {!isEmpty && (
+            <Link
+              href={href}
+              className="shrink-0 text-xs font-medium text-primary underline-offset-2 hover:underline"
+            >
+              See all
+            </Link>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isEmpty ? (
+          <div className="flex flex-col items-center justify-center py-6 text-center gap-2">
+            <p className="text-xs text-muted-foreground max-w-xs">{emptyText}</p>
+            <Link
+              href={href}
+              className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+            >
+              Generate ideas →
+            </Link>
+          </div>
+        ) : (
+          children
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * The "so what, what next?" row (#459) filling the space freed by the removed
+ * results tree (#458). Reads only stored data assembled server-side inside
+ * getInsightsData — no extra client round trip, no LLM call. Deliberately
+ * outside the date-filter contract: no delta badges, own section heading
+ * (see #457 for why period-scoped and account-scoped numbers must not mix).
+ */
+function RecommendationsSection({ data }: { data: InsightsRecommendations }) {
+  return (
+    <div className="space-y-3">
+      <div>
+        <h2 className="flex items-center gap-2 text-sm font-semibold">
+          <Lightbulb className="h-4 w-4 text-primary" />
+          Recommendations
+        </h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Ideas from your stored analyses — independent of the date filters above.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <RecommendationCard
+          title="Topic Opportunities"
+          icon={Tag}
+          href={TOPIC_OPPORTUNITIES_HREF}
+          isEmpty={data.topics.length === 0}
+          emptyText="No topic clusters yet. Analyze your prompt volumes to surface the themes with the most AI search demand."
+        >
+          <ul className="divide-y">
+            {data.topics.map((t) => (
+              <li key={t.keyword} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
+                <p className="flex-1 min-w-0 truncate text-sm">{t.keyword}</p>
+                <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                  {t.promptCount} prompt{t.promptCount !== 1 ? 's' : ''}
+                </span>
+                <Badge variant="outline" className="shrink-0 gap-1 text-xs tabular-nums">
+                  <TrendingUp className="h-3 w-3" />~{formatCompactNumber(t.estimatedAiVolume)}/mo
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        </RecommendationCard>
+        <RecommendationCard
+          title="Prompt Opportunities"
+          icon={Sparkles}
+          href={PROMPT_OPPORTUNITIES_HREF}
+          isEmpty={data.prompts.length === 0}
+          emptyText="No prompt suggestions stored yet. Generate AI prompt ideas based on your brand and competitor citations."
+        >
+          <ul className="divide-y">
+            {data.prompts.map((p) => (
+              <li key={p.id} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
+                <p className="flex-1 min-w-0 truncate text-sm">{p.text}</p>
+                {p.topicName && (
+                  <Badge variant="outline" className="hidden sm:inline-flex shrink-0 gap-1 text-xs">
+                    <Tag className="h-3 w-3" />
+                    {p.topicName}
+                  </Badge>
+                )}
+                {p.estVolume != null && p.estVolume > 0 && (
+                  <Badge variant="outline" className="shrink-0 gap-1 text-xs tabular-nums">
+                    <TrendingUp className="h-3 w-3" />~{formatCompactNumber(p.estVolume)}/mo
+                  </Badge>
+                )}
+              </li>
+            ))}
+          </ul>
+        </RecommendationCard>
+      </div>
+    </div>
+  );
+}
+
+// ─── Tracking Progress ────────────────────────────────────────────────────────
+
+import { saveTrackingJob, loadTrackingJob, clearTrackingJob } from '@/lib/tracking-job-store';
+import { toCsv } from '@/lib/csv';
+import { formatRelative } from '@/lib/format-relative';
+
+function TrackingProgressBanner({
+  jobStatus,
+  onStop,
+}: {
+  jobStatus: TrackingJobStatus | null;
+  onStop: () => void;
+}) {
+  if (!jobStatus) return null;
+
+  const isActive = jobStatus.status === 'active' || jobStatus.status === 'waiting';
+  if (!isActive) return null;
+
+  const progress = jobStatus.progress;
+  const pct = progress ? Math.round((progress.current / progress.total) * 100) : 0;
+
+  return (
+    <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+          <span className="text-sm font-medium">
+            {jobStatus.status === 'waiting'
+              ? 'Queued — starting automatically'
+              : 'Analyzing prompts...'}
+          </span>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+          onClick={onStop}
+        >
+          <StopCircle className="h-3.5 w-3.5" />
+          Stop
+        </Button>
+      </div>
+
+      {jobStatus.status === 'waiting' && (
+        <p className="text-xs text-muted-foreground">
+          Another analysis is running right now. Yours will begin the moment a slot opens up — no
+          need to wait here, it&apos;ll keep going in the background.
+        </p>
+      )}
+
+      {jobStatus.status === 'active' && (
+        <p className="text-xs text-muted-foreground">
+          This can take anywhere from a few minutes to 1–2 hours at busy times. You can leave this
+          page — it keeps running in the background.
+        </p>
+      )}
+
+      {progress && progress.total > 0 && (
+        <>
+          <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+            <div
+              className="h-full rounded-full bg-primary transition-all duration-500"
+              style={{ width: `${Math.max(pct, 2)}%` }}
+            />
+          </div>
+          {progress.promptText && (
+            <p className="text-xs text-muted-foreground truncate">
+              {progress.model && (
+                <span className="font-medium text-foreground">
+                  {PLATFORM_LABELS[progress.model] ?? progress.model}
+                  {progress.region && <span> · {progress.region}</span>}
+                  {' — '}
+                </span>
+              )}
+              {progress.promptText}
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Banner for runs this browser did NOT start (the daily cron, or a teammate's
+ * Run All) — detected from the tracking_runs ledger, not localStorage. The
+ * dashboard keeps showing the last completed run's numbers until the active
+ * run finishes, then swaps in one step.
+ */
+function ServerRunBanner({ run }: { run: TrackingWindow['activeRun'] }) {
+  if (!run) return null;
+  return (
+    <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
+      <div className="flex items-center gap-2">
+        <Loader2 className="h-4 w-4 animate-spin text-primary" />
+        <span className="text-sm font-medium">
+          {run.source === 'cron' ? 'Daily tracking in progress' : 'Tracking in progress'}
+        </span>
+        <span className="text-xs text-muted-foreground">
+          — showing the latest completed results; the numbers will refresh when this run finishes.
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ─── No Competitors Teaser ────────────────────────────────────────────────────
+
+/**
+ * Shown in place of the Competitor Comparison section when the brand has no
+ * tracked competitors yet (#507). Gives users a clear path to
+ * /dashboard/competitors so the head-to-head feature is discoverable even
+ * before any competitors are added.
+ */
+function NoCompetitorsTeaser() {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-muted-foreground/30 p-8 text-center">
+      <Users className="h-8 w-8 text-muted-foreground/40" />
+      <div>
+        <p className="text-sm font-medium text-foreground">No competitors tracked yet</p>
+        <p className="mt-0.5 max-w-xs text-xs text-muted-foreground">
+          Add competitors to see how you compare in AI answers.
+        </p>
+      </div>
+      <Link
+        href="/dashboard/competitors"
+        className="inline-flex items-center gap-1.5 text-xs font-medium text-primary underline-offset-2 hover:underline"
+      >
+        Head-to-Head Comparison
+        <ArrowRight className="h-3.5 w-3.5" />
+      </Link>
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
+export default function InsightsPage() {
+  const t = useTranslations('insights');
+  const tCommon = useTranslations('common');
+  const router = useRouter();
+  const { isCloud } = usePlanContext();
+  const brand = useBrandStore((s) => s.getActiveBrand());
+  const [summary, setSummary] = useState<InsightsSummary | null>(null);
+  const [trackedPrompts, setTrackedPrompts] = useState<TrackedPromptsKpi | null>(null);
+  const [visibilityRate, setVisibilityRate] = useState<VisibilityRateKpi | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRunning, setIsRunning] = useState(false);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<TrackingJobStatus | null>(null);
+  const [showSinglePrompt, setShowSinglePrompt] = useState(false);
+  const [filters, setFilters] = useState<InsightsFilters>(DEFAULT_FILTERS);
+  const [hasAnyData, setHasAnyData] = useState<boolean | null>(null);
+  const [availableRegions, setAvailableRegions] = useState<string[]>([]);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [availableTopics, setAvailableTopics] = useState<Topic[]>([]);
+  const [competitorData, setCompetitorData] = useState<CompetitorComparisonData | null>(null);
+  const [rateTrend, setRateTrend] = useState<VisibilityRateTrendData | null>(null);
+  const [sovData, setSovData] = useState<ShareOfVoiceData | null>(null);
+  const [recommendations, setRecommendations] = useState<InsightsRecommendations | null>(null);
+  const [breakdownMetric, setBreakdownMetric] = useState<BreakdownMetric | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [cronRun, setCronRun] = useState<TrackingWindow['activeRun']>(null);
+  const cronRunRef = useRef<TrackingWindow['activeRun']>(null);
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+
+  const loadData = useCallback(
+    async (overrideFilters?: InsightsFilters, { silent = false } = {}) => {
+      if (!brand) return;
+      if (!silent) setIsLoading(true);
+      try {
+        const f = overrideFilters ?? filtersRef.current;
+        // eslint-disable-next-line prefer-const -- dateFrom/dateTo are reassigned by the 24h anchor below
+        let { dateFrom, dateTo, days } = getDateRange(f.datePreset, {
+          from: f.dateFrom,
+          to: f.dateTo,
+        });
+
+        // Stable 24h window (00044): anchor to the last COMPLETED tracking
+        // run so the morning refresh can't flash "no results" or shrink the
+        // counts while today's run streams in. Brands with no completed run
+        // yet (fresh onboarding) keep the live rolling window — nothing of
+        // theirs is old enough to age out, so it can't regress.
+        if (f.datePreset === '24h') {
+          const win = await getTrackingWindow(brand.id).catch(() => null);
+          if (win) {
+            cronRunRef.current = win.activeRun;
+            setCronRun(win.activeRun);
+            if (win.anchored) {
+              dateFrom = win.anchored.dateFrom;
+              dateTo = win.anchored.dateTo;
+            }
+          }
+        }
+
+        const filterOpts = {
+          model: f.model || undefined,
+          region: f.region || undefined,
+          topicId: f.topic || undefined,
+          dateFrom,
+          dateTo,
+          // Whole-day window → the aggregate actions answer from the daily
+          // rollups (00066). Absent for 24h, whose anchored window above is
+          // timestamp-shaped and stays on the raw path.
+          days,
+        };
+
+        const hasFilters = Boolean(f.datePreset !== 'all' || f.model || f.region || f.topic);
+
+        // One consolidated server action (#313): summary + competitor + SoV
+        // run in a real server-side Promise.all (one round trip instead of
+        // five serialized POSTs), and "has any data" comes from a cheap
+        // count instead of an unbounded full-table scan.
+        // The trend chart follows the page filters exactly — same window as
+        // every other number on the page, so the headline rate never
+        // contradicts the KPI header.
+        const [insights, trend] = await Promise.all([
+          getInsightsData(brand.id, {
+            ...filterOpts,
+            checkUnfiltered: hasFilters,
+          }),
+          getVisibilityRateTrend(brand.id, filterOpts).catch(() => null),
+        ]);
+        setRateTrend(trend && trend.points.length > 0 ? trend : null);
+        setSummary(insights.summary);
+        setTrackedPrompts(insights.trackedPrompts);
+        setVisibilityRate(insights.visibilityRate);
+        setCompetitorData(insights.competitors.brands.length > 1 ? insights.competitors : null);
+        setSovData(insights.sov.byPlatform.length > 0 ? insights.sov : null);
+        setRecommendations(insights.recommendations);
+        setHasAnyData(insights.hasAnyData);
+
+        // Group raw model slugs by their resolved display name so different
+        // ChatGPT versions ("gpt-5-3-mini" + "gpt-5-5") collapse into one
+        // "ChatGPT" filter option. Stored as `slugA,slugB` so the server can
+        // filter the whole family with .in() via applyModelFilter().
+        const slugToLabel = new Map<string, string>();
+        for (const slug of insights.filterOptions.models) {
+          if (slugToLabel.has(slug)) continue;
+          const label =
+            MODEL_PROVIDER_LABELS[slug] ??
+            PLATFORM_LABELS[slug] ??
+            getAIProviderDisplayName(resolveAIProvider(slug));
+          slugToLabel.set(slug, label);
+        }
+        const familyToSlugs = new Map<string, string[]>();
+        for (const [slug, label] of slugToLabel) {
+          const arr = familyToSlugs.get(label) ?? [];
+          arr.push(slug);
+          familyToSlugs.set(label, arr);
+        }
+        const models = Array.from(familyToSlugs.values())
+          .map((slugs) => slugs.sort().join(','))
+          .sort();
+        setAvailableRegions([...insights.filterOptions.regions].sort((a, b) => a.localeCompare(b)));
+        setAvailableModels(models.sort((a, b) => a.localeCompare(b)));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : '';
+
+        // Next.js surfaces this when a server action's response stream is
+        // cut because the user navigated away mid-load. The destination
+        // page renders fine; the toast is pure noise. Matched
+        // case-insensitively so a wording tweak between Next versions
+        // doesn't reopen the issue.
+        if (/unexpected response/i.test(message)) {
+          console.debug('[insights] load aborted by navigation', err);
+        } else if (!silent) {
+          // Next.js redacts server-action error messages in production
+          // builds ("An error occurred in the Server Components render…"),
+          // so relaying `message` verbatim shows the user that boilerplate
+          // instead of anything actionable. Anything unrecognizable gets the
+          // plain fallback.
+          const redacted = !message || /server components render|digest property/i.test(message);
+          toast.error(redacted ? 'Failed to load insights — please try again' : message);
+        } else {
+          // Silent refreshes fire every ~10s while a tracking job runs; a
+          // transient 5xx or network blip there shouldn't pop a red toast —
+          // the next poll will retry and the user sees nothing.
+          console.warn('[insights] silent refresh failed', err);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [brand],
+  );
+
+  useEffect(() => {
+    if (!brand?.id) return;
+    setAvailableRegions([]);
+    setAvailableModels([]);
+    setAvailableTopics([]);
+    const next = { ...filtersRef.current, region: '', model: '', topic: '' };
+    filtersRef.current = next;
+    setFilters(next);
+    getTopics(brand.id)
+      .then(setAvailableTopics)
+      .catch(() => {});
+  }, [brand?.id]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Watch the tracking-run ledger so server-started (cron) runs surface too:
+  // the job banner below only knows about jobs this browser started via
+  // localStorage, which is why users never saw anything during the daily
+  // morning run. When the active run disappears (= completed), silently
+  // reload so the anchored 24h window swaps to the fresh run in one step.
+  useEffect(() => {
+    if (!brand?.id) return;
+    let cancelled = false;
+
+    const tick = async () => {
+      const win = await getTrackingWindow(brand.id).catch(() => null);
+      if (cancelled || !win) return;
+      const wasRunning = cronRunRef.current !== null;
+      cronRunRef.current = win.activeRun;
+      setCronRun(win.activeRun);
+      if (wasRunning && !win.activeRun) {
+        loadData(undefined, { silent: true });
+      }
+    };
+
+    const id = setInterval(tick, 60_000);
+    tick();
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [brand?.id, loadData]);
+
+  // Restore active job from localStorage or URL query param (post-payment redirect)
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    if (!brand) return;
+
+    const urlJobId = searchParams.get('jobId');
+    if (urlJobId) {
+      saveTrackingJob({ jobId: urlJobId, brandId: brand.id, startedAt: Date.now() });
+      setActiveJobId(urlJobId);
+      setIsRunning(true);
+      window.history.replaceState({}, '', window.location.pathname);
+      return;
+    }
+
+    const saved = loadTrackingJob();
+    if (saved && saved.brandId === brand.id) {
+      setActiveJobId(saved.jobId);
+      setIsRunning(true);
+    }
+  }, [brand, searchParams]);
+
+  // Poll job status while a job is active
+  useEffect(() => {
+    if (!activeJobId) return;
+
+    let cancelled = false;
+    let lastRefresh = 0;
+    const poll = async () => {
+      while (!cancelled) {
+        try {
+          const status = await getJobStatus(activeJobId);
+          if (cancelled) break;
+          setJobStatus(status);
+
+          // Refresh data every ~10s while active so new results appear progressively
+          const now = Date.now();
+          if (status.status === 'active' && now - lastRefresh > 10_000) {
+            lastRefresh = now;
+            loadData(undefined, { silent: true });
+          }
+
+          if (status.status === 'completed') {
+            clearTrackingJob();
+            setActiveJobId(null);
+            setIsRunning(false);
+            setJobStatus(null);
+            toast.success(`Analysis complete — ${status.result?.resultCount ?? 0} results saved.`);
+            loadData(undefined, { silent: true });
+            break;
+          }
+
+          if (status.status === 'failed' || status.status === 'not_found') {
+            clearTrackingJob();
+            setActiveJobId(null);
+            setIsRunning(false);
+            setJobStatus(null);
+            if (status.status === 'failed') {
+              toast.error(`Job failed: ${status.failedReason ?? 'Unknown error'}`);
+            }
+            break;
+          }
+        } catch {
+          // network error, keep polling
+        }
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+    };
+
+    poll();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeJobId, loadData]);
+
+  const handleFilterChange = (newFilters: InsightsFilters) => {
+    setFilters(newFilters);
+    loadData(newFilters);
+  };
+
+  const handleRunPrompts = async () => {
+    if (!brand) return;
+    setIsRunning(true);
+    try {
+      const { jobId } = await triggerTrackingCheck(brand.id);
+      saveTrackingJob({ jobId, brandId: brand.id, startedAt: Date.now() });
+      setActiveJobId(jobId);
+      setJobStatus({
+        status: 'waiting',
+        progress: null,
+        result: null,
+        failedReason: null,
+      });
+    } catch (err) {
+      setIsRunning(false);
+      toast.error(err instanceof Error ? err.message : 'Failed to trigger tracking');
+    }
+  };
+
+  const handleStopTracking = async () => {
+    if (!activeJobId) return;
+    try {
+      await cancelTrackingJob(activeJobId);
+    } catch {}
+    clearTrackingJob();
+    setActiveJobId(null);
+    setIsRunning(false);
+    setJobStatus(null);
+    toast.success('Tracking stopped');
+    loadData(undefined, { silent: true });
+  };
+
+  const handleJobStarted = (jobId: string) => {
+    if (!brand) return;
+    setIsRunning(true);
+    saveTrackingJob({ jobId, brandId: brand.id, startedAt: Date.now() });
+    setActiveJobId(jobId);
+    setJobStatus({
+      status: 'waiting',
+      progress: null,
+      result: null,
+      failedReason: null,
+    });
+  };
+
+  const handleExportCsv = useCallback(async () => {
+    if (!brand) return;
+    setIsExporting(true);
+    try {
+      const f = filtersRef.current;
+      const { dateFrom, dateTo } = getDateRange(f.datePreset, {
+        from: f.dateFrom,
+        to: f.dateTo,
+      });
+      const filterOpts = {
+        model: f.model || undefined,
+        region: f.region || undefined,
+        topicId: f.topic || undefined,
+        dateFrom,
+        dateTo,
+      };
+
+      const { results: allResults, isCapped } = await exportPromptResults(brand.id, filterOpts);
+
+      const rows: Record<string, string | number>[] = allResults.map((r) => ({
+        created_at: r.createdAt,
+        prompt: r.promptText,
+        topic: r.topicName ?? '',
+        platform: PLATFORM_LABELS[r.platform] ?? r.platform,
+        model: r.modelUsed ?? '',
+        region: r.region ?? '',
+        mention_count: r.mentionCount,
+        citation_count: r.citationCount,
+        visibility_score: r.visibilityScore,
+        sentiment: r.sentiment,
+        citation_urls: r.citations.map((c) => c.url).join(', '),
+        competitor_mentions:
+          r.competitorMentions?.map((c) => `${c.name}:${c.mention_count}`).join(', ') ?? '',
+      }));
+
+      if (isCapped) {
+        rows.push({
+          created_at: 'WARNING',
+          prompt: 'Export capped at 50,000 rows',
+          topic: '',
+          platform: '',
+          model: '',
+          region: '',
+          mention_count: 0,
+          citation_count: 0,
+          visibility_score: 0,
+          sentiment: '',
+          citation_urls: '',
+          competitor_mentions: '',
+        });
+        toast.warning('Export capped at 50,000 rows to prevent memory issues');
+      }
+
+      const csv = toCsv(rows, INSIGHT_EXPORT_HEADERS);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const date = new Date().toISOString().slice(0, 10);
+      const slug = brand.slug ?? 'brand';
+
+      link.href = url;
+      link.download = `zentic_${slug}_insights_${date}.csv`;
+      link.click();
+
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to export CSV');
+    } finally {
+      setIsExporting(false);
+    }
+  }, [brand]);
+
+  if (!brand || (isLoading && !summary)) return <InsightsSkeleton />;
+
+  const noResults = !summary || summary.totalResults === 0;
+
+  // First load renders the skeleton (summary is still null); once data has
+  // ever arrived, a reload from a filter change is a "refetch" — the stale
+  // content stays visible under the overlay instead of flashing a skeleton.
+  const isRefetching = isLoading && summary !== null;
+
+  // Visibility Rate now IS the AI Visibility Score (0-100): 0.6×mention
+  // rate + 0.25×citation rate + 0.15×position factor over the filtered
+  // answers. Sourced from the trend action so this card, the trend card
+  // header and the leaderboard all read the exact same number. Coverage
+  // (appeared in X of Y prompts) survives as the sub-line.
+  const headlineScore = rateTrend?.summary.rate ?? 0;
+  const coveragePct =
+    visibilityRate && trackedPrompts && trackedPrompts.activeInPeriod > 0
+      ? Math.round((visibilityRate.visiblePrompts / trackedPrompts.activeInPeriod) * 1000) / 10
+      : 0;
+  const trulyEmpty = noResults && !hasAnyData;
+
+  // The localStorage-tracked job banner (with progress + Stop) wins when this
+  // browser started the run; the ledger banner covers everything else.
+  const localJobActive =
+    jobStatus !== null && (jobStatus.status === 'active' || jobStatus.status === 'waiting');
+
+  if (trulyEmpty) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">{t('title')}</h1>
+          <p className="text-muted-foreground text-sm">{brand.name}</p>
+        </div>
+        <TrackingProgressBanner jobStatus={jobStatus} onStop={handleStopTracking} />
+        {!localJobActive && <ServerRunBanner run={cronRun} />}
+        <EmptyState onRunPrompts={handleRunPrompts} isRunning={isRunning} isCloud={isCloud} />
+        {!isCloud && (
+          <div className="flex justify-center">
+            <Button variant="outline" onClick={() => setShowSinglePrompt(true)} className="gap-2">
+              <FlaskConical className="h-4 w-4" />
+              Or test a single prompt
+            </Button>
+          </div>
+        )}
+        <RunSinglePromptDialog
+          brandId={brand.id}
+          open={showSinglePrompt}
+          onClose={() => setShowSinglePrompt(false)}
+          onJobStarted={handleJobStarted}
+        />
+      </div>
+    );
+  }
+
+  const lastCheckedLabel = summary?.lastCheckedAt
+    ? formatRelative(summary.lastCheckedAt, tCommon)
+    : 'Never';
+
+  const handleResetFilters = () => {
+    const resetFilters = { ...DEFAULT_FILTERS };
+    setFilters(resetFilters);
+    loadData(resetFilters);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">{t('title')}</h1>
+
+          <p className="text-muted-foreground text-sm">
+            {brand.name} · Last run: {lastCheckedLabel}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Always visible */}
+          <FormulaDialog />
+
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={handleExportCsv}
+            disabled={isExporting}
+          >
+            {isExporting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            {isExporting ? tCommon('exporting') : tCommon('exportCsv')}
+          </Button>
+
+          <Link href="/dashboard/reports" className={cn(buttonVariants(), 'gap-2')}>
+            <FileText className="h-4 w-4" />
+            Reports
+          </Link>
+
+          {/* Self-host only */}
+          {!isCloud && (
+            <>
+              <Button variant="outline" onClick={() => setShowSinglePrompt(true)} className="gap-2">
+                <FlaskConical className="h-4 w-4" />
+                Test Single Prompt
+              </Button>
+
+              <Button onClick={handleRunPrompts} disabled={isRunning} className="gap-2">
+                {isRunning ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Play className="h-4 w-4" />
+                )}
+                Run All
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Filter Bar */}
+      <FilterBar
+        filters={filters}
+        onChange={handleFilterChange}
+        availableRegions={availableRegions}
+        availableModels={availableModels}
+        availableTopics={availableTopics}
+      />
+
+      {/* Tracking Progress */}
+      <TrackingProgressBanner jobStatus={jobStatus} onStop={handleStopTracking} />
+      {!localJobActive && <ServerRunBanner run={cronRun} />}
+
+      {/* Refetch overlay: on a filter/date change the previous window's data
+          stays mounted (no skeleton — that's first-load only), so without a
+          signal the user reads stale numbers as the new period's. Dim the
+          content and float a spinner over it; the overlay also swallows
+          clicks so a stale card can't be interacted with. The filter bar
+          stays outside, so switching presets mid-load keeps working. */}
+      <div className="relative">
+        {isRefetching && (
+          <div className="absolute inset-0 z-10 flex items-start justify-center rounded-lg bg-background/50 pt-32">
+            <div className="flex items-center rounded-md border bg-background p-2.5 shadow-sm">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          </div>
+        )}
+        <div className={cn('space-y-6', isRefetching && 'opacity-60')}>
+          {noResults ? (
+            <NoDataForPeriod datePreset={filters.datePreset} onReset={handleResetFilters} />
+          ) : (
+            <>
+              {/* KPI Cards — Visibility Rate leads the row: the raw all-results
+              score average reads near zero for most brands (absent answers
+              each contribute 0) and buried the number users act on. The old
+              average survives in the breakdown sheet; Share of Voice has its
+              own chart section below. */}
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5">
+                <KpiCard
+                  title="Visibility"
+                  tooltip="AI Visibility Score (0-100): how often AI answers mention you (60%), cite your site (25%) and how early you're named (15%), under the current filters."
+                  icon={Eye}
+                  value={headlineScore}
+                  sub={
+                    visibilityRate && trackedPrompts ? (
+                      <span className="tabular-nums">
+                        appeared in {visibilityRate.visiblePrompts}/{trackedPrompts.activeInPeriod}{' '}
+                        prompts ({coveragePct}%)
+                      </span>
+                    ) : null
+                  }
+                  onClick={() => setBreakdownMetric('visibility')}
+                />
+                <KpiCard
+                  title="Tracked Prompts"
+                  tooltip="Distinct prompts that produced tracked results in the selected period and filters. The quota below is current usage across your organization, counting one per location each prompt targets — it does not change with the date range."
+                  icon={Layers}
+                  value={trackedPrompts?.activeInPeriod ?? 0}
+                  sub={
+                    trackedPrompts && trackedPrompts.quotaLimit !== -1 ? (
+                      <>
+                        <span className="tabular-nums">
+                          {trackedPrompts.quotaUsed} / {trackedPrompts.quotaLimit} prompt locations
+                        </span>
+                        {trackedPrompts.quotaUsed >= trackedPrompts.quotaLimit * 0.9 && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              router.push('/dashboard/settings');
+                            }}
+                            className="ml-1 underline underline-offset-2 hover:text-foreground"
+                          >
+                            Upgrade
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      `${trackedPrompts?.quotaUsed ?? 0} prompt locations tracked`
+                    )
+                  }
+                  onClick={() => router.push('/dashboard/prompts')}
+                />
+                <KpiCard
+                  title={t('mentions')}
+                  tooltip="How many times your brand was referenced by name in AI-generated responses."
+                  icon={Zap}
+                  value={summary!.totalMentions.toLocaleString()}
+                  sub={
+                    <CountDeltaBadge
+                      current={summary!.totalMentions}
+                      previous={summary!.prevMentions}
+                      delta={summary!.mentionsChange}
+                    />
+                  }
+                  subVariant={
+                    summary!.mentionsChange !== null && summary!.mentionsChange > 0
+                      ? 'positive'
+                      : 'muted'
+                  }
+                  onClick={() => setBreakdownMetric('mentions')}
+                />
+                <KpiCard
+                  title={t('citations')}
+                  tooltip="Times your brand's domain was cited as a source with a direct link in AI responses."
+                  icon={Quote}
+                  value={summary!.totalCitations.toLocaleString()}
+                  sub={
+                    <CountDeltaBadge
+                      current={summary!.totalCitations}
+                      previous={summary!.prevCitations}
+                      delta={summary!.citationsChange}
+                    />
+                  }
+                  subVariant={
+                    summary!.citationsChange !== null && summary!.citationsChange > 0
+                      ? 'positive'
+                      : 'muted'
+                  }
+                  onClick={() => router.push('/dashboard/citations')}
+                />
+                <KpiCard
+                  title={t('positiveSentiment')}
+                  tooltip="Percentage of answers that mention your brand and describe it in a positive context."
+                  icon={AlertCircle}
+                  value={`${summary!.positiveSentimentPct}%`}
+                  sub={<DeltaBadge delta={summary!.sentimentChange} suffix=" pts" />}
+                  subVariant={
+                    summary!.sentimentChange !== null && summary!.sentimentChange > 0
+                      ? 'positive'
+                      : 'muted'
+                  }
+                />
+              </div>
+
+              {/* Competitor Comparison */}
+              {competitorData ? (
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+                  <Card className="lg:col-span-3">
+                    <CardHeader className="pb-2">
+                      {rateTrend ? (
+                        <div>
+                          <div className="text-3xl font-bold tabular-nums">
+                            {rateTrend.summary.rate}
+                          </div>
+                          <div className="mt-1 flex items-center gap-2 text-xs">
+                            {rateTrend.summary.change !== null && (
+                              <span
+                                className={cn(
+                                  'flex items-center gap-0.5 font-medium',
+                                  rateTrend.summary.change >= 0
+                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                    : 'text-red-600 dark:text-red-400',
+                                )}
+                              >
+                                {rateTrend.summary.change >= 0 ? (
+                                  <TrendingUp className="h-3 w-3" />
+                                ) : (
+                                  <TrendingDown className="h-3 w-3" />
+                                )}
+                                {rateTrend.summary.change >= 0 ? '+' : ''}
+                                {rateTrend.summary.change} pts
+                              </span>
+                            )}
+                            {rateTrend.summary.change !== null && rateTrend.summary.prevFrom && (
+                              <span className="text-muted-foreground">
+                                vs{' '}
+                                {new Date(rateTrend.summary.prevFrom).toLocaleDateString('en-US', {
+                                  month: 'short',
+                                  day: '2-digit',
+                                  year: 'numeric',
+                                })}{' '}
+                                –{' '}
+                                {new Date(rateTrend.summary.prevTo).toLocaleDateString('en-US', {
+                                  month: 'short',
+                                  day: '2-digit',
+                                  year: 'numeric',
+                                })}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <CardTitle className="flex items-center gap-2 text-sm font-medium">
+                          <Users className="h-4 w-4" />
+                          AI Visibility — Brand vs Competitors
+                        </CardTitle>
+                      )}
+                    </CardHeader>
+                    <CardContent>
+                      {rateTrend ? (
+                        <VisibilityRateTrendChart data={rateTrend} />
+                      ) : (
+                        <div className="flex items-center justify-center h-[280px] text-sm text-muted-foreground">
+                          No visibility data for this period yet
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <Card className="lg:col-span-2">
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <CardTitle className="text-sm font-medium">Leaderboard</CardTitle>
+                        <Link
+                          href="/dashboard/competitors"
+                          className="flex shrink-0 items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                          Head-to-Head Comparison
+                          <ArrowRight className="h-3 w-3" />
+                        </Link>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <CompetitorLeaderboard data={competitorData.brands} />
+                    </CardContent>
+                  </Card>
+                </div>
+              ) : (
+                <NoCompetitorsTeaser />
+              )}
+
+              {/* Share of Voice */}
+              {sovData && (
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="flex items-center gap-2 text-sm font-medium">
+                        <PieChart className="h-4 w-4" />
+                        {t('sovByPlatform')}
+                      </CardTitle>
+                      {sovData.overallSovChange !== null && sovData.overallSovChange !== 0 && (
+                        <DeltaBadge delta={sovData.overallSovChange} suffix=" pts" />
+                      )}
+                    </CardHeader>
+                    <CardContent>
+                      <ShareOfVoicePlatformChart
+                        data={sovData.byPlatform}
+                        overallSov={sovData.overallSov}
+                      />
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="flex items-center gap-2 text-sm font-medium">
+                        <TrendingUp className="h-4 w-4" />
+                        Share of Voice Trend
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ShareOfVoiceTrendChart data={sovData.trend} />
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* Recommendations (#459) — stored data, not period-scoped */}
+              {recommendations && <RecommendationsSection data={recommendations} />}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Single Prompt Runner */}
+      <RunSinglePromptDialog
+        brandId={brand.id}
+        open={showSinglePrompt}
+        onClose={() => setShowSinglePrompt(false)}
+        onJobStarted={handleJobStarted}
+      />
+
+      {/* Metric Breakdown Drilldown */}
+      <MetricBreakdownSheet
+        brandId={brand.id}
+        metric={breakdownMetric}
+        onOpenChange={(open) => {
+          if (!open) setBreakdownMetric(null);
+        }}
+        filters={(() => {
+          const { dateFrom, dateTo } = getDateRange(filters.datePreset, {
+            from: filters.dateFrom,
+            to: filters.dateTo,
+          });
+          return {
+            dateFrom,
+            dateTo,
+            region: filters.region || undefined,
+            model: filters.model || undefined,
+            topicId: filters.topic || undefined,
+          };
+        })()}
+      />
+    </div>
+  );
+}

@@ -1,0 +1,731 @@
+'use client';
+
+import { useRef, useState, useEffect } from 'react';
+import { PLATFORM_LABELS } from '@/config/platform-labels';
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  PieChart,
+  Pie,
+  Cell,
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+} from 'recharts';
+import type {
+  CompetitorComparisonEntry,
+  ProviderComparisonRow,
+  VisibilityTrendPoint,
+  VisibilityRateTrendData,
+  SoVByPlatform,
+  SoVTrendPoint,
+} from '@/lib/actions/tracking';
+import { getFaviconUrl } from '@/lib/favicon';
+import { formatCompactNumber } from '@/lib/format';
+
+// ─── Adaptive Y-axis ─────────────────────────────────────────────────────────
+// Visibility scores are theoretically 0–100 but realistic values for most
+// brands cluster in the 5–30 band. Pinning the Y-axis to 100 makes bars look
+// uniformly stubby and kills the perceived difference between, say, 8 and 22.
+// We rescale upward with 30% headroom, but snap to a "nice" tick value so
+// gridlines stay clean — and keep a minimum ceiling of 20 so very low values
+// don't look absurdly zoomed (a 3-point chart shouldn't fill the canvas).
+
+const NICE_YMAX_STEPS = [20, 25, 30, 40, 50, 60, 80, 100] as const;
+
+function niceVisibilityYMax(values: number[]): number {
+  if (values.length === 0) return 20;
+  const actualMax = Math.max(0, ...values);
+  if (actualMax <= 0) return 20;
+  const target = actualMax * 1.3;
+  for (const step of NICE_YMAX_STEPS) if (target <= step) return step;
+  return 100;
+}
+
+// ─── Auto-sizing wrapper ─────────────────────────────────────────────────────
+// Replaces ResponsiveContainer which has issues with React 19
+
+function ChartContainer({
+  height,
+  children,
+}: {
+  height: number;
+  children: (width: number) => React.ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const update = () => setWidth(el.clientWidth);
+    update();
+
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  return (
+    <div ref={ref} style={{ width: '100%', height }}>
+      {width > 0 && children(width)}
+    </div>
+  );
+}
+
+// ─── Custom Tooltips ──────────────────────────────────────────────────────────
+
+function AreaTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: { name: string; value: number; color: string }[];
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-lg border bg-background px-3 py-2 shadow-md text-xs">
+      <p className="font-medium text-foreground mb-1">{label}</p>
+      {payload.map((entry) => (
+        <div key={entry.name} className="flex items-center gap-2">
+          <span
+            className="inline-block h-2 w-2 rounded-full shrink-0"
+            style={{ backgroundColor: entry.color }}
+          />
+          <span className="text-muted-foreground capitalize">{entry.name}:</span>
+          <span className="font-medium text-foreground">{entry.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Exported Charts ──────────────────────────────────────────────────────────
+
+export function TrendChart({ data }: { data: VisibilityTrendPoint[] }) {
+  const hasCompetitors = data.some((d) => d.competitors !== null);
+  // Adaptive Y ceiling (see niceVisibilityYMax): a fixed 0–100 axis flattens
+  // realistic low-single-digit visibility averages into a floor-hugging line.
+  const yMax = niceVisibilityYMax(
+    data.flatMap((d) => [d.score, ...(d.competitors !== null ? [d.competitors] : [])]),
+  );
+
+  if (data.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-[192px] text-sm text-muted-foreground">
+        No trend data available yet
+      </div>
+    );
+  }
+
+  return (
+    <ChartContainer height={192}>
+      {(width) => (
+        <AreaChart
+          width={width}
+          height={192}
+          data={data}
+          margin={{ top: 4, right: 4, left: -24, bottom: 0 }}
+        >
+          <defs>
+            <linearGradient id="gradScore" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="hsl(var(--chart-1))" stopOpacity={0.2} />
+              <stop offset="95%" stopColor="hsl(var(--chart-1))" stopOpacity={0} />
+            </linearGradient>
+            <linearGradient id="gradCompetitors" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="hsl(var(--muted-foreground))" stopOpacity={0.15} />
+              <stop offset="95%" stopColor="hsl(var(--muted-foreground))" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" className="stroke-border" vertical={false} />
+          <XAxis
+            dataKey="date"
+            tick={{ fontSize: 11 }}
+            tickLine={false}
+            axisLine={false}
+            className="fill-muted-foreground"
+          />
+          <YAxis
+            tick={{ fontSize: 11 }}
+            tickLine={false}
+            axisLine={false}
+            className="fill-muted-foreground"
+            domain={[0, yMax]}
+          />
+          <Tooltip content={<AreaTooltip />} />
+          <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+          <Area
+            type="monotone"
+            dataKey="score"
+            name="Your Brand"
+            stroke="hsl(var(--chart-1))"
+            strokeWidth={2}
+            fill="url(#gradScore)"
+            dot={false}
+            activeDot={{ r: 4 }}
+          />
+          {hasCompetitors && (
+            <Area
+              type="monotone"
+              dataKey="competitors"
+              name="Avg. Competitor"
+              stroke="hsl(var(--muted-foreground))"
+              strokeWidth={2}
+              fill="url(#gradCompetitors)"
+              dot={false}
+              activeDot={{ r: 4 }}
+              strokeDasharray="4 4"
+            />
+          )}
+        </AreaChart>
+      )}
+    </ChartContainer>
+  );
+}
+
+// ─── Visibility Rate trend (one line per brand, logo at the line's end) ──────
+
+// 5 lines total, matching the leaderboard: the own brand + top 4 competitors.
+// Fixed color order across the five lines: green (own brand), then navy,
+// purple, orange, red for the competitors by rate.
+const RATE_TREND_PALETTE = ['#1e3a8a', '#a855f7', '#f97316', '#ef4444'];
+const RATE_TREND_MAX_COMPETITORS = 4;
+const OWN_BRAND_COLOR = '#22c55e';
+
+/** Circle-clipped logo rendered on a line's last data point. */
+function LogoDot(props: {
+  cx?: number;
+  cy?: number;
+  index?: number;
+  lastIndex: number;
+  color: string;
+  logoUrl: string;
+  entityKey: string;
+  dimmed?: boolean;
+}) {
+  const { cx, cy, index, lastIndex, color, logoUrl, entityKey, dimmed } = props;
+  if (index !== lastIndex || cx == null || cy == null) return <g />;
+  const r = 11;
+  const clipId = `rate-trend-logo-${entityKey}`;
+  return (
+    <g opacity={dimmed ? 0.25 : 1}>
+      <defs>
+        <clipPath id={clipId}>
+          <circle cx={cx} cy={cy} r={r - 2.5} />
+        </clipPath>
+      </defs>
+      <circle cx={cx} cy={cy} r={r} fill="#ffffff" stroke={color} strokeWidth={2} />
+      <image
+        href={logoUrl}
+        x={cx - (r - 2.5)}
+        y={cy - (r - 2.5)}
+        width={(r - 2.5) * 2}
+        height={(r - 2.5) * 2}
+        clipPath={`url(#${clipId})`}
+        preserveAspectRatio="xMidYMid slice"
+      />
+    </g>
+  );
+}
+
+export function VisibilityRateTrendChart({ data }: { data: VisibilityRateTrendData }) {
+  const { entities, points } = data;
+  // Hovering a line (or its legend entry) brings it forward and dims the rest.
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+
+  if (points.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-[280px] text-sm text-muted-foreground">
+        No visibility data for this period yet
+      </div>
+    );
+  }
+
+  // Own brand always plots; competitors capped so a long roster doesn't turn
+  // the chart into spaghetti. Ranked by the LAST point's value — the rolling
+  // window makes that equal each entity's score over the charted window, i.e.
+  // the exact number the leaderboard sorts by — so the chart always plots the
+  // same brands the leaderboard's top rows show. (Period-averaging the points
+  // here used to pick a different set on short ranges.)
+  const lastRate = (key: string) => points[points.length - 1]?.values[key] ?? 0;
+  const avgRate = (key: string) =>
+    points.reduce((sum, p) => sum + (p.values[key] ?? 0), 0) / points.length;
+  const shown = [
+    ...entities.filter((e) => e.isOwnBrand),
+    ...entities
+      .filter((e) => !e.isOwnBrand)
+      .sort((a, b) => lastRate(b.key) - lastRate(a.key) || avgRate(b.key) - avgRate(a.key))
+      .slice(0, RATE_TREND_MAX_COMPETITORS),
+  ].map((entity, i) => ({
+    ...entity,
+    // Own brand is index 0, so competitor #1 (highest rate) starts the
+    // palette at navy.
+    color: entity.isOwnBrand
+      ? OWN_BRAND_COLOR
+      : RATE_TREND_PALETTE[(i - 1) % RATE_TREND_PALETTE.length],
+    logoUrl: entity.logoUrl ?? (entity.domain ? getFaviconUrl(entity.domain, 64) : ''),
+  }));
+
+  const chartData = points.map((p) => ({ date: p.date, ...p.values }));
+  const lastIndex = points.length - 1;
+
+  // Y axis ticks run 5, 15, 25, … and the top one sits just above the
+  // highest score in view (a 60 peak → axis ends at 65), so the lines use
+  // the full canvas instead of being squashed under an always-100 scale.
+  const dataMax = Math.max(0, ...shown.flatMap((e) => points.map((p) => p.values[e.key] ?? 0)));
+  let yTop = 5;
+  while (yTop <= dataMax) yTop += 10;
+  const yTicks: number[] = [];
+  for (let tick = 5; tick <= yTop; tick += 10) yTicks.push(tick);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <ChartContainer height={320}>
+        {(width) => (
+          <LineChart
+            width={width}
+            height={320}
+            data={chartData}
+            margin={{ top: 8, right: 26, left: -24, bottom: 0 }}
+          >
+            <XAxis
+              dataKey="date"
+              tick={{ fontSize: 11 }}
+              tickLine={false}
+              axisLine={false}
+              className="fill-muted-foreground"
+            />
+            <YAxis
+              domain={[0, yTop]}
+              ticks={yTicks}
+              tick={{ fontSize: 11 }}
+              tickLine={false}
+              axisLine={false}
+              className="fill-muted-foreground"
+            />
+            <Tooltip
+              isAnimationActive={false}
+              content={({ active, payload, label }) => {
+                if (!active || !payload?.length) return null;
+                const ordered = [...payload].sort(
+                  (a, b) => ((b.value as number) ?? 0) - ((a.value as number) ?? 0),
+                );
+                return (
+                  <div className="rounded-lg border bg-background px-3 py-2 shadow-md text-xs">
+                    <p className="font-medium text-foreground mb-1">{label}</p>
+                    {ordered.map((entry) => {
+                      const entity = shown.find((e) => e.key === entry.dataKey);
+                      if (!entity) return null;
+                      return (
+                        <div key={entity.key} className="flex items-center gap-2">
+                          <span
+                            className="inline-block h-2 w-2 rounded-full shrink-0"
+                            style={{ backgroundColor: entity.color }}
+                          />
+                          <span className="text-muted-foreground">{entity.name}:</span>
+                          <span className="font-medium text-foreground">{entry.value}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              }}
+            />
+            {/* Render order = z-order: lines are drawn lowest-rate first so
+                when end-of-line logos overlap, the higher rate sits on top.
+                A hovered line always wins. */}
+            {[...shown]
+              .sort((a, b) => {
+                if (a.key === hoveredKey) return 1;
+                if (b.key === hoveredKey) return -1;
+                return (
+                  (points[lastIndex]?.values[a.key] ?? 0) - (points[lastIndex]?.values[b.key] ?? 0)
+                );
+              })
+              .map((entity) => {
+                const dimmed = hoveredKey !== null && hoveredKey !== entity.key;
+                return (
+                  <Line
+                    key={entity.key}
+                    type="monotone"
+                    dataKey={entity.key}
+                    stroke={entity.color}
+                    strokeOpacity={dimmed ? 0.15 : 1}
+                    strokeWidth={entity.key === hoveredKey ? 3 : entity.isOwnBrand ? 2.5 : 1.5}
+                    isAnimationActive={false}
+                    onMouseEnter={() => setHoveredKey(entity.key)}
+                    onMouseLeave={() => setHoveredKey(null)}
+                    dot={
+                      <LogoDot
+                        lastIndex={lastIndex}
+                        color={entity.color}
+                        logoUrl={entity.logoUrl}
+                        entityKey={entity.key}
+                        dimmed={dimmed}
+                      />
+                    }
+                    activeDot={{ r: 3 }}
+                  />
+                );
+              })}
+          </LineChart>
+        )}
+      </ChartContainer>
+
+      <ul className="flex flex-wrap justify-center gap-x-4 gap-y-1.5">
+        {shown.map((entity) => (
+          <li
+            key={entity.key}
+            tabIndex={0}
+            aria-label={entity.name}
+            className="flex cursor-default items-center gap-1.5 rounded-sm text-xs transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            style={{
+              opacity: hoveredKey !== null && hoveredKey !== entity.key ? 0.35 : 1,
+            }}
+            onMouseEnter={() => setHoveredKey(entity.key)}
+            onMouseLeave={() => setHoveredKey(null)}
+            onFocus={() => setHoveredKey(entity.key)}
+            onBlur={() => setHoveredKey(null)}
+          >
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-sm"
+              style={{ background: entity.color }}
+              aria-hidden
+            />
+            <span className={entity.isOwnBrand ? 'font-medium' : 'text-muted-foreground'}>
+              {entity.name}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+const MAX_VISIBLE = 5;
+
+function LeaderboardEntry({ entry, rank }: { entry: CompetitorComparisonEntry; rank: number }) {
+  return (
+    <div
+      className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 ${
+        entry.isOwnBrand ? 'border-primary/30 bg-primary/5' : ''
+      }`}
+    >
+      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-bold">
+        {rank}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium truncate">{entry.name}</span>
+          {entry.isOwnBrand && <span className="text-[10px] font-medium text-primary">YOU</span>}
+        </div>
+        <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
+          <span>{formatCompactNumber(entry.totalMentions)} mentions</span>
+          <span>{formatCompactNumber(entry.totalCitations)} citations</span>
+        </div>
+        <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
+          <span className="tabular-nums">
+            appeared in {entry.visiblePrompts}/{entry.promptCount} prompts
+          </span>
+        </div>
+      </div>
+      <div className="flex flex-col items-end gap-0.5 shrink-0">
+        <span
+          className="text-sm font-semibold tabular-nums"
+          title={`Mentioned in ${entry.mentionAnswers} answers · cited in ${entry.citationAnswers} · position factor ${
+            entry.positionFactor === null ? '—' : entry.positionFactor.toFixed(2)
+          }`}
+        >
+          {entry.score ?? '—'}
+        </span>
+        {entry.scoreChange !== null && entry.scoreChange !== 0 && (
+          <span
+            className={`text-[10px] font-medium tabular-nums ${
+              entry.scoreChange > 0 ? 'text-green-500' : 'text-red-500'
+            }`}
+          >
+            {entry.scoreChange > 0 ? '↑' : '↓'} {Math.abs(entry.scoreChange).toFixed(1)} pts
+          </span>
+        )}
+        {entry.scoreChange === 0 && (
+          <span className="text-[10px] font-medium tabular-nums text-muted-foreground">— 0</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function CompetitorLeaderboard({ data }: { data: CompetitorComparisonEntry[] }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const needsTruncation = data.length > MAX_VISIBLE;
+
+  const visibleEntries: { entry: CompetitorComparisonEntry; rank: number }[] = (() => {
+    if (!needsTruncation || expanded) {
+      return data.map((entry, i) => ({ entry, rank: i + 1 }));
+    }
+
+    const ownBrandIdx = data.findIndex((e) => e.isOwnBrand);
+    const ownBrandInTop = ownBrandIdx >= 0 && ownBrandIdx < MAX_VISIBLE - 1;
+
+    if (ownBrandInTop || ownBrandIdx < 0) {
+      return data.slice(0, MAX_VISIBLE).map((entry, i) => ({ entry, rank: i + 1 }));
+    }
+
+    // Show top 4 + own brand at its actual rank
+    const top = data.slice(0, MAX_VISIBLE - 1).map((entry, i) => ({ entry, rank: i + 1 }));
+    top.push({ entry: data[ownBrandIdx], rank: ownBrandIdx + 1 });
+    return top;
+  })();
+
+  return (
+    <div className="space-y-2">
+      {visibleEntries.map(({ entry, rank }, idx) => (
+        <LeaderboardEntry
+          key={`lb-${idx}-${rank}-${entry.isOwnBrand ? 'own' : entry.name}`}
+          entry={entry}
+          rank={rank}
+        />
+      ))}
+      {needsTruncation && !expanded && (
+        <button
+          onClick={() => setExpanded(true)}
+          className="w-full text-center text-xs font-medium text-muted-foreground hover:text-foreground py-2 transition-colors"
+        >
+          Show all ({data.length})
+        </button>
+      )}
+      {expanded && (
+        <button
+          onClick={() => setExpanded(false)}
+          className="w-full text-center text-xs font-medium text-muted-foreground hover:text-foreground py-2 transition-colors"
+        >
+          Show less
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─── Share of Voice Charts ───────────────────────────────────────────────────
+
+export function ShareOfVoicePlatformChart({
+  data,
+  overallSov,
+}: {
+  data: SoVByPlatform[];
+  overallSov: number;
+}) {
+  if (data.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-[280px] text-sm text-muted-foreground">
+        No share of voice data available
+      </div>
+    );
+  }
+
+  const palette = [
+    'hsl(var(--chart-1))',
+    'hsl(var(--chart-2))',
+    'hsl(var(--chart-3))',
+    'hsl(var(--chart-4))',
+    'hsl(var(--chart-5))',
+    '#f59e0b',
+    '#06b6d4',
+    '#ec4899',
+  ];
+
+  const chartData = data.map((d, index) => ({
+    ...d,
+    fill: palette[index % palette.length],
+    voiceMentions: d.brandMentions + d.competitorMentions,
+  }));
+  const totalVoiceMentions = chartData.reduce((sum, d) => sum + d.voiceMentions, 0);
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="text-center">
+        <div className="text-4xl font-bold tabular-nums">{overallSov}%</div>
+        <div className="text-xs text-muted-foreground mt-0.5">Overall Share of Voice</div>
+      </div>
+
+      <ChartContainer height={200}>
+        {(width) => {
+          const size = Math.min(width, 220);
+          return (
+            <PieChart width={width} height={200}>
+              <Pie
+                data={chartData}
+                cx={width / 2}
+                cy={100}
+                innerRadius={size * 0.28}
+                outerRadius={size * 0.44}
+                paddingAngle={2}
+                dataKey="voiceMentions"
+                nameKey="provider"
+              >
+                {chartData.map((entry) => (
+                  <Cell key={entry.provider} fill={entry.fill} stroke="none" />
+                ))}
+              </Pie>
+              <Tooltip
+                isAnimationActive={false}
+                content={({ active, payload }) => {
+                  if (!active || !payload || payload.length === 0) return null;
+                  const p = payload[0].payload as SoVByPlatform & {
+                    fill: string;
+                    voiceMentions: number;
+                  };
+                  const platformShare =
+                    totalVoiceMentions > 0 ? (p.voiceMentions / totalVoiceMentions) * 100 : 0;
+                  return (
+                    <div className="rounded-md border bg-popover px-2.5 py-1.5 text-xs shadow-sm max-w-[240px]">
+                      <div className="font-medium">{p.provider}</div>
+                      <div className="text-muted-foreground">
+                        Your share of voice:{' '}
+                        <span className="font-medium text-foreground">{p.sov.toFixed(1)}%</span> —
+                        your brand accounts for {p.brandMentions.toLocaleString()} of the{' '}
+                        {p.voiceMentions.toLocaleString()} brand + competitor mentions here
+                      </div>
+                      <div className="mt-1 text-muted-foreground">
+                        {platformShare.toFixed(1)}% of all tracked mentions happened on {p.provider}{' '}
+                        (slice size)
+                      </div>
+                    </div>
+                  );
+                }}
+              />
+            </PieChart>
+          );
+        }}
+      </ChartContainer>
+
+      <ul className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+        {chartData.map((d) => (
+          <li key={d.provider} className="flex items-center gap-2 text-xs">
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-sm"
+              style={{ background: d.fill }}
+              aria-hidden
+            />
+            <span className="truncate text-foreground">{d.provider}</span>
+            <span className="ml-auto tabular-nums text-muted-foreground">{d.sov.toFixed(1)}%</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function SoVTrendTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: { name: string; value: number; color: string }[];
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-lg border bg-background px-3 py-2 shadow-md text-xs">
+      <p className="font-medium text-foreground mb-1">{label}</p>
+      {payload.map((entry) => (
+        <div key={entry.name} className="flex items-center gap-2">
+          <span
+            className="inline-block h-2 w-2 rounded-full shrink-0"
+            style={{ backgroundColor: entry.color }}
+          />
+          <span className="text-muted-foreground">{entry.name}:</span>
+          <span className="font-medium text-foreground">{entry.value}%</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function ShareOfVoiceTrendChart({ data }: { data: SoVTrendPoint[] }) {
+  if (data.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-[280px] text-sm text-muted-foreground">
+        No trend data available yet
+      </div>
+    );
+  }
+
+  const hasCompetitors = data.some((d) => d.competitorSov > 0);
+
+  return (
+    <ChartContainer height={280}>
+      {(width) => (
+        <AreaChart
+          width={width}
+          height={280}
+          data={data}
+          margin={{ top: 4, right: 4, left: -24, bottom: 0 }}
+        >
+          <defs>
+            <linearGradient id="gradSovBrand" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="hsl(var(--chart-1))" stopOpacity={0.2} />
+              <stop offset="95%" stopColor="hsl(var(--chart-1))" stopOpacity={0} />
+            </linearGradient>
+            <linearGradient id="gradSovComp" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="hsl(var(--muted-foreground))" stopOpacity={0.15} />
+              <stop offset="95%" stopColor="hsl(var(--muted-foreground))" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" className="stroke-border" vertical={false} />
+          <XAxis
+            dataKey="date"
+            tick={{ fontSize: 11 }}
+            tickLine={false}
+            axisLine={false}
+            className="fill-muted-foreground"
+          />
+          <YAxis
+            tick={{ fontSize: 11 }}
+            tickLine={false}
+            axisLine={false}
+            className="fill-muted-foreground"
+            domain={[0, 100]}
+            tickFormatter={(v: number) => `${v}%`}
+          />
+          <Tooltip content={<SoVTrendTooltip />} />
+          <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+          <Area
+            type="monotone"
+            dataKey="brandSov"
+            name="Your Brand"
+            stroke="hsl(var(--chart-1))"
+            strokeWidth={2}
+            fill="url(#gradSovBrand)"
+            dot={false}
+            activeDot={{ r: 4 }}
+          />
+          {hasCompetitors && (
+            <Area
+              type="monotone"
+              dataKey="competitorSov"
+              name="Competitors"
+              stroke="hsl(var(--muted-foreground))"
+              strokeWidth={2}
+              fill="url(#gradSovComp)"
+              dot={false}
+              activeDot={{ r: 4 }}
+              strokeDasharray="4 4"
+            />
+          )}
+        </AreaChart>
+      )}
+    </ChartContainer>
+  );
+}

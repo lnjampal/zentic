@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  schema:
+    name: schema — consolidated schema.sql is up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Regenerate schema.sql from migrations
+        run: bash supabase/build-schema.sh
+      - name: Fail if schema.sql is out of date
+        run: |
+          if ! git diff --quiet -- supabase/schema.sql; then
+            echo "::error::supabase/schema.sql is out of date. Run 'bash supabase/build-schema.sh' and commit the result."
+            git --no-pager diff -- supabase/schema.sql
+            exit 1
+          fi
+
+  web:
+    name: web — format, lint & typecheck
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+          cache-dependency-path: web/yarn.lock
+      - run: yarn install --frozen-lockfile
+      - name: Prettier format check
+        run: yarn format:check
+      - name: ESLint
+        run: yarn lint
+      - name: TypeScript typecheck
+        run: yarn typecheck
+      - name: Vitest tests
+        run: yarn test
+      - name: Next.js production build
+        run: yarn build
+        env:
+          # next build evaluates modules that initialize Supabase and Stripe
+          # clients; fake values keep CI independent of deployment secrets.
+          NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-service-role-key
+          STRIPE_SECRET_KEY: sk_test_ci_placeholder
+  server:
+    name: server — lint, format & test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - name: Vitest tests
+        run: npm run test

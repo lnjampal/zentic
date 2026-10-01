@@ -1,0 +1,2295 @@
+{
+  "common": {
+    "loading": "Loading...",
+    "error": "Something went wrong.",
+    "retry": "Try again",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "view": "View",
+    "back": "Back",
+    "next": "Next",
+    "search": "Search",
+    "filter": "Filter",
+    "export": "Export",
+    "noData": "No data available",
+    "relative": {
+      "justNow": "just now",
+      "minutesAgo": "{m}m ago",
+      "hoursAgo": "{h}h ago",
+      "daysAgo": "{d}d ago"
+    },
+    "exportCsv": "Export CSV",
+    "exporting": "Exporting...",
+    "dateRange": "Date Range",
+    "custom": "Custom",
+    "from": "From",
+    "to": "To",
+    "topic": "Topic",
+    "prompt": "Prompt",
+    "platform": "Platform",
+    "region": "Region",
+    "aiModel": "AI Model",
+    "allTopics": "All Topics",
+    "allPrompts": "All Prompts",
+    "allPlatforms": "All Platforms",
+    "allRegions": "All Regions",
+    "searchPrompts": "Search prompts…",
+    "noPromptsMatch": "No prompts match.",
+    "sources": "Sources",
+    "sourceAll": "All",
+    "sourceBrand": "Brand",
+    "sourceCompetitors": "Competitors",
+    "sourceThirdParty": "Third-Party",
+    "all": "All"
+  },
+  "nav": {
+    "overview": "Overview",
+    "chat": "Chat",
+    "actionCenter": "Action Center",
+    "insights": "Visibility",
+    "traffic": "AI Traffic Analytics",
+    "prompts": "Prompts",
+    "topics": "Topics",
+    "content": "Content",
+    "audit": "Site Audit",
+    "competitors": "Competitors",
+    "citations": "Citations",
+    "shopping": "Shopping",
+    "reports": "Reports",
+    "settings": "Settings",
+    "analytics": "Analytics",
+    "optimization": "Optimization",
+    "toggleMenu": "Toggle navigation menu"
+  },
+  "actionCenter": {
+    "tabs": {
+      "label": "Action Center sections",
+      "kpis": "KPIs",
+      "actions": "Actions",
+      "signals": "Signals",
+      "history": "History"
+    },
+    "pages": {
+      "actions": "What should you do now, ranked by your KPI goals.",
+      "signals": "What changed across your AI visibility data.",
+      "history": "What was done, and what it moved."
+    },
+    "categories": {
+      "visibility": "Visibility",
+      "citations": "Citations",
+      "mentions": "Mentions",
+      "traffic": "Traffic",
+      "content": "Content"
+    },
+    "kpis": {
+      "title": "KPIs",
+      "subtitle": "Track the metrics that matter, aligned with your goals.",
+      "allKpis": "All KPIs",
+      "filters": "Filters",
+      "dateRangeAria": "Date range",
+      "table": {
+        "kpi": "KPI",
+        "value": "Value",
+        "change": "Change",
+        "trend": "Trend (7D)",
+        "status": "Status",
+        "goal": "Goal",
+        "vsGoal": "vs Goal",
+        "actions": "Actions"
+      },
+      "status": {
+        "on_track": "On Track",
+        "at_risk": "At Risk",
+        "off_track": "Off Track",
+        "goal_reached": "Goal Reached"
+      },
+      "pointsChange": "{value} pts",
+      "vsGoalAria": "{progress}% of goal",
+      "editKpis": "Edit KPIs",
+      "addKpi": "Add KPI",
+      "menu": {
+        "label": "Actions for {name}",
+        "edit": "Edit KPI",
+        "remove": "Remove KPI"
+      },
+      "empty": {
+        "title": "No KPIs configured yet",
+        "description": "Choose a KPI framework to define what Zentic should prioritize for this brand.",
+        "cta": "Configure KPIs"
+      },
+      "allInactive": "No active KPIs for this brand.",
+      "noResults": "No KPIs match this filter.",
+      "clearFilter": "Clear filter",
+      "removeFailed": "Couldn't remove the KPI. Only admins and managers can change KPIs.",
+      "error": {
+        "title": "We couldn't load your KPIs.",
+        "retry": "Try again"
+      },
+      "noBrand": {
+        "title": "No brand selected",
+        "description": "Select a brand to view its KPIs."
+      }
+    },
+    "drawer": {
+      "title": "Configure KPI Framework",
+      "description": "Customize the KPIs Zentic tracks for this brand.",
+      "steps": {
+        "template": {
+          "title": "1 · Choose KPI template",
+          "description": "Start with a template or build your own."
+        },
+        "goals": {
+          "title": "2 · Set goals & targets",
+          "description": "Define your targets and time period."
+        }
+      },
+      "templates": {
+        "ai_search_visibility": {
+          "name": "AI Search Visibility",
+          "description": "Core KPIs for AI visibility and citations."
+        },
+        "content_performance": {
+          "name": "Content Performance",
+          "description": "KPIs for content quality and impact."
+        },
+        "brand_monitoring": {
+          "name": "Brand Monitoring",
+          "description": "KPIs for mentions, sentiment and reputation."
+        },
+        "custom": {
+          "name": "Custom Framework",
+          "description": "Build your own KPI set from scratch."
+        },
+        "notAvailable": "Coming soon — its KPIs aren't measurable yet."
+      },
+      "timePeriod": "Time period",
+      "timeframes": {
+        "weekly": "Weekly",
+        "monthly": "Monthly",
+        "quarterly": "Quarterly"
+      },
+      "targets": "Targets",
+      "targetAria": "Target for {name}",
+      "invalidTarget": "Targets must be positive; percent targets can't exceed 100.",
+      "callout": {
+        "title": "This KPI framework will drive your Action Center.",
+        "description": "Actions and recommendations are prioritized based on your KPI goals."
+      },
+      "cancel": "Cancel",
+      "save": "Save & Apply",
+      "saved": "KPI framework applied.",
+      "saveFailed": "Couldn't save the framework. Only admins and managers can change KPIs.",
+      "loadFailed": "Couldn't load your current KPIs."
+    },
+    "registry": {
+      "ai_visibility": {
+        "name": "AI Visibility",
+        "description": "Share of tracked prompts where your brand appears"
+      },
+      "citations": {
+        "name": "Citations",
+        "description": "Total citations across all AI responses"
+      },
+      "mentions": {
+        "name": "Mentions",
+        "description": "Brand mentions in AI responses"
+      },
+      "share_of_voice": {
+        "name": "Share of Voice",
+        "description": "Your share of brand mentions vs competitors"
+      },
+      "ai_referral_traffic": {
+        "name": "AI Referral Traffic",
+        "description": "Visits arriving from AI platforms"
+      }
+    },
+    "signalCategories": {
+      "visibility": "Visibility",
+      "citation": "Citation",
+      "mention": "Mention",
+      "traffic": "Traffic",
+      "technical": "Technical",
+      "competitor": "Competitor"
+    },
+    "signalsPage": {
+      "title": "Signals",
+      "subtitle": "Real-time signals from AI Search, your site, and the web. These signals drive your Action Center.",
+      "cards": {
+        "total": "Total Signals",
+        "important": "Important Signals",
+        "new": "New Signals",
+        "resolved": "Resolved Signals",
+        "avgImpact": "Avg. Signal Impact",
+        "noPrev": "no previous data",
+        "vsRange": "vs {range}",
+        "impactSame": "Same as previous {days} days",
+        "impactHigher": "Higher than previous {days} days",
+        "impactLower": "Lower than previous {days} days"
+      },
+      "allSignals": "All",
+      "filters": {
+        "impact": "Impact",
+        "status": "Status",
+        "source": "Source",
+        "all": "All",
+        "search": "Search signals…",
+        "clear": "Clear filters"
+      },
+      "table": {
+        "signal": "Signal",
+        "type": "Type",
+        "impact": "Impact",
+        "source": "Source",
+        "affected": "Affected",
+        "detected": "Detected",
+        "status": "Status",
+        "actions": "Actions"
+      },
+      "status": {
+        "new": "New",
+        "acknowledged": "Acknowledged",
+        "resolved": "Resolved",
+        "dismissed": "Dismissed"
+      },
+      "superseded": "Changed",
+      "impact": {
+        "high": "High",
+        "medium": "Medium",
+        "low": "Low"
+      },
+      "sources": {
+        "ai_results": "AI Results",
+        "ga4": "Google Analytics",
+        "gsc": "Google Search Console",
+        "site_audit": "Site Audit"
+      },
+      "states": {
+        "dropped": "Dropped",
+        "gained": "Gained",
+        "lost": "Lost",
+        "opportunity": "Opportunity",
+        "gain": "Gain",
+        "overtaken": "Overtaken",
+        "crossed": "Crossed",
+        "uncited": "Uncited",
+        "issue": "Issue",
+        "slipping": "Slipping",
+        "gap": "Gap"
+      },
+      "affected": {
+        "prompts": "{count, plural, one {1 prompt} other {# prompts}}",
+        "urls": "{count, plural, one {1 URL} other {# URLs}}",
+        "platform": "Platform",
+        "competitor": "Competitor",
+        "allPrompts": "All prompts",
+        "pages": "{count, plural, one {# page} other {# pages}}",
+        "sources": "{count, plural, one {# source} other {# sources}}",
+        "queries": "{count, plural, one {# query} other {# queries}}",
+        "topics": "{count, plural, one {# topic} other {# topics}}",
+        "platforms": "{count, plural, one {# platform} other {# platforms}}",
+        "regions": "{count, plural, one {# region} other {# regions}}",
+        "competitors": "{count, plural, one {# competitor} other {# competitors}}"
+      },
+      "menu": {
+        "label": "Actions for this signal",
+        "acknowledge": "Acknowledge",
+        "resolve": "Mark resolved",
+        "dismiss": "Dismiss",
+        "reopen": "Reopen"
+      },
+      "statusChangeFailed": "Couldn't update the signal.",
+      "empty": {
+        "title": "No signals yet",
+        "description": "Signals are detected after your daily tracking runs. Meaningful changes across visibility, citations, competitors and traffic will appear here."
+      },
+      "noResults": "No signals match these filters.",
+      "error": {
+        "title": "We couldn't load your signals.",
+        "retry": "Try again"
+      },
+      "noBrand": {
+        "title": "No brand selected",
+        "description": "Select a brand to view its signals."
+      },
+      "drawer": {
+        "whatChanged": "What changed",
+        "affected": "Affected",
+        "relatedKpis": "Related KPIs",
+        "detected": "Detected",
+        "lastDetected": "Last detected",
+        "source": "Source",
+        "status": "Status",
+        "viewPrompt": "View prompt"
+      }
+    },
+    "signalTexts": {
+      "sharp_drop": {
+        "title": "Visibility dropped sharply",
+        "description": "You were visible in {from}% of responses, now {to}%."
+      },
+      "prompt_gain": {
+        "title": "Visibility gained for “{prompt}”",
+        "description": "This prompt's visibility score rose {gain} points over the past week."
+      },
+      "new_engine": {
+        "title": "New AI platform appearance",
+        "description": "Your brand appeared on {platform} for the first time."
+      },
+      "lost_citations": {
+        "title": "Citations lost for “{prompt}”",
+        "description": "Your pages are no longer cited in answers to this prompt."
+      },
+      "first_citation": {
+        "title": "First citation for {url}",
+        "description": "“{prompt}” now cites this page for the first time."
+      },
+      "competitor_surge": {
+        "title": "{name} visibility surged",
+        "description": "Across your tracked prompts, their 7-day visibility score rose from {from}% to {to}%."
+      },
+      "competitor_crossed": {
+        "title": "{name} passed your visibility",
+        "description": "Across your tracked prompts, their 7-day visibility score is now {competitorRate}% while yours is {brandRate}%."
+      },
+      "competitor_overtaken": {
+        "title": "You overtook {name}",
+        "description": "Across your tracked prompts, your 7-day visibility score moved above theirs ({brandRate}% vs {competitorRate}%)."
+      },
+      "page_opportunity": {
+        "title": "High-value page without AI traffic",
+        "description": "{page} ranks #{rank} on your site by {signal} but receives no AI referrals."
+      },
+      "uncited_mentions": {
+        "title": "Brand mentioned without citation",
+        "description": "Your brand is mentioned but never cited in {count} prompts."
+      },
+      "audit_low_score": {
+        "title": "Audited pages score low on AEO readiness",
+        "description": "{count, plural, one {1 audited page scores} other {# audited pages score}} below 50/100."
+      },
+      "visibility_slipping": {
+        "title": "Visibility is slipping",
+        "description": "You were visible in {from}% of responses, now {to}%."
+      },
+      "platform_gap": {
+        "title": "Weak on {platform}",
+        "description": "You are visible in {bestRate}% of {best} answers, but only {rate}% on {platform}."
+      },
+      "competitor_citation_gap": {
+        "title": "A competitor is cited far more often",
+        "description": "{competitor} was cited in {theirs} answers; you were cited in {ours}."
+      },
+      "prompt_visibility_gap": {
+        "title": "Absent from {targets}",
+        "description": "Your brand does not appear in answers to these prompts."
+      },
+      "high_demand_gap": {
+        "title": "No visibility on {targets} with demand",
+        "description": "These prompts carry demand, and your brand is absent from their answers."
+      },
+      "uncovered_demand": {
+        "title": "Uncovered demand across {targets}",
+        "description": "Demand exists here, and no page of yours covers it."
+      },
+      "prompt_unmapped": {
+        "title": "No page for {targets}",
+        "description": "No page is mapped to these prompts, and none has been cited."
+      },
+      "content_underperforming": {
+        "title": "Pages not winning {targets}",
+        "description": "A page exists for these prompts, and your brand is still absent."
+      },
+      "lost_mentions": {
+        "title": "Mentions lost on {targets}",
+        "description": "Your brand was named in these answers and no longer is."
+      },
+      "high_value_prompt_lost": {
+        "title": "Lost presence on {targets} with demand",
+        "description": "You were visible on these high-demand prompts and no longer are."
+      },
+      "citation_at_risk": {
+        "title": "Citations thinning on {targets}",
+        "description": "Citations on these prompts fell below half their earlier rate."
+      },
+      "topic_gap": {
+        "title": "Partial coverage of {name}",
+        "description": "You appear on part of this topic’s prompts."
+      },
+      "topic_uncovered": {
+        "title": "Barely present in {name}",
+        "description": "You appear on few of this topic’s prompts."
+      },
+      "topic_slipping": {
+        "title": "Coverage slipping in {name}",
+        "description": "Your coverage of this topic is starting to fall."
+      },
+      "topic_drop": {
+        "title": "Coverage dropped in {name}",
+        "description": "Your coverage of this topic fell significantly."
+      },
+      "platform_slipping": {
+        "title": "Visibility slipping on {name}",
+        "description": "Your mention rate on this platform is starting to fall."
+      },
+      "platform_drop": {
+        "title": "Visibility dropped on {name}",
+        "description": "Your mention rate on this platform fell significantly."
+      },
+      "country_gap": {
+        "title": "Weak in {name}",
+        "description": "You are far less visible here than in your strongest region."
+      },
+      "competitor_leads": {
+        "title": "{name} is mentioned far more than you",
+        "description": "This competitor is named a multiple of your count."
+      },
+      "competitor_momentum": {
+        "title": "{name} is gaining fast",
+        "description": "This competitor’s mentions grew sharply against the week before."
+      },
+      "competitor_topic_lead": {
+        "title": "A competitor leads {name}",
+        "description": "Competitors appear on most of this topic’s prompts where you do not."
+      },
+      "competitor_high_value_lead": {
+        "title": "Competitors lead on {targets}",
+        "description": "Competitors appear on these high-demand prompts, and you do not."
+      },
+      "competitor_uncovered_topic": {
+        "title": "A competitor leads {name}, where you have no content",
+        "description": "Competitors hold this topic, and no page of yours covers it."
+      },
+      "authority_citation_gap": {
+        "title": "Rarely beside {name}",
+        "description": "This source is cited widely, and rarely in answers that name you."
+      },
+      "third_party_citation_gap": {
+        "title": "{name} could reference your pages",
+        "description": "This source is cited when answers discuss you, and does not reference your own pages."
+      },
+      "third_party_presence_gap": {
+        "title": "Absent from answers citing {name}",
+        "description": "Answers citing this source never name your brand."
+      },
+      "competitor_cited_source": {
+        "title": "{name} cites competitors, not you",
+        "description": "This source appears in answers naming competitors, and never in yours."
+      },
+      "competitor_winning_source": {
+        "title": "Competitors win {name}",
+        "description": "Competitors appear across several prompts citing this source; you never do."
+      },
+      "page_citation_slipping": {
+        "title": "Citations slipping on {targets}",
+        "description": "Your pages here are cited less than the week before."
+      },
+      "owned_page_citation_lost": {
+        "title": "Citations lost on {targets}",
+        "description": "Your pages here were cited and are now cited nowhere."
+      },
+      "fanout_gap": {
+        "title": "Absent from {targets}",
+        "description": "Engines search these follow-up queries, and your brand never appears."
+      },
+      "competitor_fanout_gap": {
+        "title": "Competitors win {targets}",
+        "description": "Competitors appear on these follow-up queries, and you do not."
+      },
+      "gsc_demand_gap": {
+        "title": "Search demand without AI visibility on {targets}",
+        "description": "These queries earn Google impressions, and the related prompts show no AI visibility."
+      },
+      "search_ai_misalignment": {
+        "title": "Top three in Google, invisible in AI for {targets}",
+        "description": "You rank near the top for these queries and do not appear in AI answers."
+      },
+      "gsc_low_ctr": {
+        "title": "Low click-through on {targets}",
+        "description": "These queries earn far fewer clicks than their position usually does."
+      },
+      "gsc_risk": {
+        "title": "AI visibility slipping on {targets} that earn clicks",
+        "description": "These queries bring organic clicks while their AI visibility falls."
+      },
+      "gsc_decline": {
+        "title": "Clicks falling on {targets}",
+        "description": "Search clicks on these queries fell significantly."
+      },
+      "ai_traffic_slipping": {
+        "title": "AI traffic slipping on {targets}",
+        "description": "AI-referred visits to these pages are starting to fall."
+      },
+      "ai_traffic_drop": {
+        "title": "AI traffic dropped across {targets}",
+        "description": "AI-referred visits fell significantly."
+      },
+      "ai_landing_page_winner": {
+        "title": "Strong AI conversions on {targets}",
+        "description": "These pages turn AI traffic into key events well above your site’s rate."
+      },
+      "ai_landing_underperforming": {
+        "title": "Weak engagement on {targets}",
+        "description": "AI visitors engage on these pages well below your site’s rate."
+      },
+      "converting_page_slipping": {
+        "title": "AI traffic slipping on {targets} that convert",
+        "description": "Pages with key events are losing AI-referred visits."
+      },
+      "cross_channel_risk": {
+        "title": "Search and AI traffic falling together",
+        "description": "Organic clicks and AI referrals both fell against the period before."
+      },
+      "visibility_traffic_loss": {
+        "title": "Visibility and AI traffic falling together",
+        "description": "AI visibility and AI-referred traffic fell in the same window. A correlation, not a proven cause."
+      },
+      "crawler_blocked": {
+        "title": "AI crawlers blocked on {targets}",
+        "description": "Site Audit found these pages closed to AI crawlers."
+      },
+      "structured_data_issue": {
+        "title": "Structured data issues on {targets}",
+        "description": "Structured data is missing or invalid on these pages."
+      },
+      "outdated_content": {
+        "title": "Outdated content on {targets}",
+        "description": "These pages fail Site Audit’s freshness checks."
+      },
+      "weak_entity": {
+        "title": "Weak entity signals on {targets}",
+        "description": "These pages fail brand-entity or entity-coverage checks."
+      },
+      "weak_internal_links": {
+        "title": "Weak internal linking on {targets}",
+        "description": "These pages fail the internal-linking check."
+      },
+      "content_gap": {
+        "title": "Content gaps on {targets}",
+        "description": "These pages do not cover the queries they target."
+      },
+      "targets": {
+        "prompts": "{count, plural, one {# prompt} other {# prompts}}",
+        "pages": "{count, plural, one {# page} other {# pages}}",
+        "sources": "{count, plural, one {# source} other {# sources}}",
+        "queries": "{count, plural, one {# query} other {# queries}}",
+        "topics": "{count, plural, one {# topic} other {# topics}}",
+        "platforms": "{count, plural, one {# platform} other {# platforms}}",
+        "regions": "{count, plural, one {# region} other {# regions}}",
+        "competitors": "{count, plural, one {# competitor} other {# competitors}}"
+      }
+    },
+    "actionCategories": {
+      "growth": "Growth",
+      "protect": "Protect",
+      "recover": "Recover",
+      "fix": "Fix",
+      "compete": "Compete"
+    },
+    "actionsPage": {
+      "title": "Actions",
+      "subtitle": "Know what changed, what matters, and what to do next.",
+      "cards": {
+        "top": "Top Actions",
+        "topSub": "Highest priority right now",
+        "atRisk": "At Risk",
+        "atRiskSub": "Recover and Fix — visibility or traffic declining",
+        "opportunities": "Opportunities",
+        "opportunitiesSub": "High potential to grow",
+        "inProgress": "In Progress",
+        "inProgressSub": "Actions currently running",
+        "impact": "Potential Impact",
+        "impactSub": "Across open actions"
+      },
+      "allActions": "All",
+      "filters": {
+        "impact": "Impact",
+        "status": "Status",
+        "assignee": "Assignee",
+        "all": "All",
+        "unassigned": "Unassigned",
+        "search": "Search actions…",
+        "clear": "Clear filters"
+      },
+      "sort": {
+        "label": "Sort",
+        "priority": "Priority",
+        "impact": "Impact",
+        "newest": "Newest",
+        "due_date": "Due date",
+        "updated": "Recently updated"
+      },
+      "table": {
+        "action": "Action",
+        "impact": "Impact",
+        "status": "Status",
+        "assignee": "Assignee",
+        "dueDate": "Due date",
+        "updated": "Updated",
+        "actions": "Actions"
+      },
+      "status": {
+        "new": "New",
+        "in_progress": "In Progress",
+        "on_hold": "On Hold",
+        "completed": "Completed",
+        "dismissed": "Dismissed"
+      },
+      "impact": {
+        "high": "High",
+        "medium": "Medium",
+        "low": "Low"
+      },
+      "taskProgress": "{completed}/{total} tasks",
+      "tags": {
+        "signals": "{count, plural, one {1 signal} other {# signals}}",
+        "prompts": "{count, plural, one {1 prompt} other {# prompts}}",
+        "pages": "{count, plural, one {1 page} other {# pages}}",
+        "sources": "{count, plural, one {# source} other {# sources}}",
+        "queries": "{count, plural, one {# query} other {# queries}}",
+        "topics": "{count, plural, one {# topic} other {# topics}}",
+        "platforms": "{count, plural, one {# platform} other {# platforms}}",
+        "regions": "{count, plural, one {# region} other {# regions}}",
+        "competitors": "{count, plural, one {# competitor} other {# competitors}}"
+      },
+      "menu": {
+        "label": "Actions for this item"
+      },
+      "empty": {
+        "title": "No actions yet",
+        "description": "Actions are generated from your signals after daily tracking runs. When meaningful work emerges, it will appear here — quality over quantity."
+      },
+      "noResults": "No actions match these filters.",
+      "error": {
+        "title": "We couldn't load your actions.",
+        "retry": "Try again"
+      },
+      "noBrand": {
+        "title": "No brand selected",
+        "description": "Select a brand to view its actions."
+      },
+      "updateFailed": "Couldn't update the action.",
+      "drawer": {
+        "actionId": "Action ID",
+        "tabs": {
+          "overview": "Overview",
+          "tasks": "Tasks",
+          "signals": "Signals",
+          "history": "History"
+        },
+        "why": "Why this action?",
+        "goal": "Goal",
+        "kpis": "KPIs",
+        "kpiTarget": "target {target}",
+        "noKpis": "No configured KPIs are linked to this action.",
+        "primarySignals": "Primary signals",
+        "tasksProgress": "{completed} / {total} tasks completed",
+        "noSignals": "No linked signals.",
+        "assignee": "Assignee",
+        "assignTo": "Assign to teammate",
+        "dueDate": "Due date",
+        "statusLabel": "Status",
+        "events": {
+          "created": "Action created",
+          "reopened": "Action reopened — its condition is firing again",
+          "signals_linked": "{count, plural, one {1 new signal} other {# new signals}} linked",
+          "status_changed": "Status changed to {to}",
+          "assigned": "Assignee changed",
+          "due_date_set": "Due date updated",
+          "task_status": "Task updated",
+          "task_ran": "{task} — carried out automatically ({tool})",
+          "task_run_failed": "{task} — the automatic attempt failed; it needs doing by hand",
+          "task_awaiting_approval": "{task} — waiting for your approval before it reaches outside Zentic"
+        },
+        "taskText": "Task text",
+        "renameTask": "Rename task",
+        "deleteTask": "Delete task",
+        "addTask": "Add task",
+        "addTaskPlaceholder": "What needs doing?",
+        "addTaskConfirm": "Add",
+        "addTaskCancel": "Cancel",
+        "skipReason": "Why was this skipped?",
+        "skipReasonPlaceholder": "e.g. handled elsewhere, no longer relevant",
+        "skipConfirm": "Skip task",
+        "skipCancel": "Cancel"
+      }
+    },
+    "actionTexts": {
+      "recover_visibility": {
+        "title": "Recover visibility across {targets}",
+        "titleGeneric": "Recover lost visibility",
+        "description": "Your AI visibility fell meaningfully.",
+        "goal": "Recover visibility to where it was."
+      },
+      "capture_ai_traffic": {
+        "title": "Capture AI traffic for {targets}",
+        "titleGeneric": "Capture AI traffic for high-value pages",
+        "description": "These pages are visible or cited in AI answers but earn little AI-referred traffic.",
+        "goal": "Turn existing AI visibility on these pages into AI-referred visits."
+      },
+      "convert_mentions": {
+        "title": "Convert mentions into citations across {targets}",
+        "titleGeneric": "Convert mentions into citations",
+        "description": "AI answers name your brand here but do not cite your domain.",
+        "goal": "Give AI engines something of yours to cite where you are already part of the answer."
+      },
+      "fix_low_scores": {
+        "title": "Fix {targets} with low AI readiness",
+        "titleGeneric": "Fix low-scoring pages",
+        "description": "These pages score below the AI-readiness threshold in Site Audit.",
+        "goal": "Bring pages up to the standard AI engines cite."
+      },
+      "close_competitor_gap": {
+        "title": "Close the visibility gap with {targets}",
+        "titleGeneric": "Close the visibility gap with competitors",
+        "description": "A competitor is mentioned well more often than you.",
+        "goal": "Close the gap."
+      },
+      "protect_visibility": {
+        "title": "Protect visibility across {targets}",
+        "titleGeneric": "Protect your visibility",
+        "description": "A real visibility position is losing ground, before it becomes a collapse.",
+        "goal": "Hold the position while it still exists to hold."
+      },
+      "expand_platform_visibility": {
+        "title": "Expand visibility on {targets}",
+        "titleGeneric": "Expand platform visibility",
+        "description": "You rank on some AI platforms and are weak on others. The content can rank; the platform differs.",
+        "goal": "Bring weaker platforms up to the level of your strongest."
+      },
+      "unknown": {
+        "description": "This action comes from a detection rule newer than this release of the app. Its tasks, evidence and measurement are complete — only the written description is missing.",
+        "goal": "Work through the tasks below; they carry what this action is for."
+      },
+      "close_citation_gap": {
+        "title": "Close the citation gap with {targets}",
+        "titleGeneric": "Close the citation gap",
+        "description": "A competitor is cited a multiple of your count.",
+        "goal": "Earn citations where competitors are winning them."
+      },
+      "expand_prompt_visibility": {
+        "title": "Expand visibility across {targets}",
+        "titleGeneric": "Expand prompt visibility",
+        "description": "Your brand is absent from answers to these tracked prompts.",
+        "goal": "Become visible in AI answers to these prompts."
+      },
+      "capture_high_demand_prompts": {
+        "title": "Capture demand across {targets}",
+        "titleGeneric": "Capture high-demand prompts",
+        "description": "These prompts carry real demand, and your brand does not appear in their answers.",
+        "goal": "Win visibility where the demand is highest."
+      },
+      "expand_topic_visibility": {
+        "title": "Expand visibility in {targets}",
+        "titleGeneric": "Expand topic visibility",
+        "description": "You appear on part of this topic’s prompts; the rest is uncovered.",
+        "goal": "Cover the topic’s missing prompts and subtopics."
+      },
+      "capture_fanout_opportunities": {
+        "title": "Capture fan-out opportunities across {targets}",
+        "titleGeneric": "Capture query fan-out opportunities",
+        "description": "AI engines search these follow-up queries while answering your prompts, and your brand never appears for them.",
+        "goal": "Cover the queries engines research on the way to their answers."
+      },
+      "increase_authority_citations": {
+        "title": "Increase citations from {targets}",
+        "titleGeneric": "Increase authority citations",
+        "description": "These sources are cited widely in your prompts’ answers, and rarely alongside your brand.",
+        "goal": "Earn citations from the sources AI engines already trust in your space."
+      },
+      "expand_country_visibility": {
+        "title": "Expand AI visibility in {targets}",
+        "titleGeneric": "Expand country visibility",
+        "description": "You perform well in one tracked region and poorly in another.",
+        "goal": "Close the visibility gap between regions."
+      },
+      "strengthen_emerging_content": {
+        "title": "Strengthen momentum across {targets}",
+        "titleGeneric": "Strengthen emerging content",
+        "description": "Visibility is improving on these prompts but has not reached its potential.",
+        "goal": "Build on content that is starting to win."
+      },
+      "expand_brand_associations": {
+        "title": "Strengthen brand associations across {targets}",
+        "titleGeneric": "Expand brand associations",
+        "description": "Your brand is under-associated with the topics or attributes you want to own.",
+        "goal": "Be named in answers about the topics you want to own."
+      },
+      "convert_search_demand": {
+        "title": "Expand AI visibility for {targets} already driving search demand",
+        "titleGeneric": "Convert search demand into AI visibility",
+        "description": "These queries earn impressions in Google, and the related AI prompts show no visibility.",
+        "goal": "Carry your search demand into AI answers."
+      },
+      "expand_organic_pages": {
+        "title": "Expand AI visibility for {targets} performing in search",
+        "titleGeneric": "Expand high-performing organic pages into AI",
+        "description": "Pages that perform in organic search have weak AI presence.",
+        "goal": "Make your best organic pages visible in AI answers."
+      },
+      "scale_ai_landing_pages": {
+        "title": "Scale {targets} driving high-quality AI traffic",
+        "titleGeneric": "Scale proven AI landing pages",
+        "description": "These AI landing pages convert well above your site’s rate.",
+        "goal": "Expand what already turns AI traffic into outcomes."
+      },
+      "create_content_for_demand": {
+        "title": "Create content for {targets} with uncovered demand",
+        "titleGeneric": "Create content for uncovered demand",
+        "description": "These prompts carry demand, and no page of yours covers them.",
+        "goal": "Create the content these prompts are asking for."
+      },
+      "create_content_for_topics": {
+        "title": "Create content to cover {targets}",
+        "titleGeneric": "Create content for topic gaps",
+        "description": "You barely appear in this topic, and new content is needed rather than edits.",
+        "goal": "Build coverage for a topic you are missing."
+      },
+      "optimize_content_for_ai": {
+        "title": "Optimize pages for {targets}",
+        "titleGeneric": "Optimize content for AI visibility",
+        "description": "A page is mapped to these prompts, and your brand is still not visible on them.",
+        "goal": "Make existing pages good enough to be cited."
+      },
+      "earn_third_party_presence": {
+        "title": "Build brand presence across {targets}",
+        "titleGeneric": "Earn third-party brand presence",
+        "description": "AI answers cite these sources, and your brand never appears in those answers.",
+        "goal": "Get included on the sources AI engines use."
+      },
+      "earn_third_party_citations": {
+        "title": "Target {targets} for citations of your pages",
+        "titleGeneric": "Earn third-party citations",
+        "description": "These sources are cited when answers discuss your brand, and could reference your own pages.",
+        "goal": "Turn third-party mentions into references to your assets."
+      },
+      "protect_valuable_citations": {
+        "title": "Protect citations on {targets}",
+        "titleGeneric": "Protect valuable citations",
+        "description": "Citations on these prompts are thinning.",
+        "goal": "Keep the citations you have."
+      },
+      "protect_ai_traffic_pages": {
+        "title": "Protect AI traffic across {targets}",
+        "titleGeneric": "Protect AI traffic pages",
+        "description": "These pages are beginning to lose AI-referred traffic.",
+        "goal": "Keep AI traffic on your valuable pages."
+      },
+      "defend_competitor_gains": {
+        "title": "Defend your position against {targets}",
+        "titleGeneric": "Defend against competitor gains",
+        "description": "A competitor is gaining fast while you still hold your position.",
+        "goal": "Keep your lead."
+      },
+      "protect_topic_leadership": {
+        "title": "Protect leadership in {targets}",
+        "titleGeneric": "Protect topic leadership",
+        "description": "Coverage of a topic you lead is starting to decline.",
+        "goal": "Keep your share of the topic."
+      },
+      "protect_high_performing_content": {
+        "title": "Protect {targets} that AI engines cite",
+        "titleGeneric": "Protect high-performing content",
+        "description": "Your pages that were cited often are now cited less.",
+        "goal": "Keep your best pages cited."
+      },
+      "protect_platform_visibility": {
+        "title": "Protect visibility on {targets}",
+        "titleGeneric": "Protect platform visibility",
+        "description": "Visibility on this AI platform is beginning to decline.",
+        "goal": "Hold your position on the platform."
+      },
+      "protect_organic_on_ai_pages": {
+        "title": "Protect organic traffic across {targets}",
+        "titleGeneric": "Protect organic traffic on AI-exposed pages",
+        "description": "These queries earn organic clicks while their AI visibility slips.",
+        "goal": "Protect search traffic as AI answers change."
+      },
+      "protect_search_and_ai_assets": {
+        "title": "Protect pages driving search and AI traffic",
+        "titleGeneric": "Protect search and AI traffic assets",
+        "description": "Organic clicks and AI referrals are falling together.",
+        "goal": "Protect the pages that carry both channels."
+      },
+      "protect_converting_ai_pages": {
+        "title": "Protect {targets} that convert AI traffic",
+        "titleGeneric": "Protect high-converting AI landing pages",
+        "description": "AI landing pages with key events are losing traffic.",
+        "goal": "Keep the traffic that converts."
+      },
+      "recover_lost_citations": {
+        "title": "Recover lost citations on {targets}",
+        "titleGeneric": "Recover lost citations",
+        "description": "Citations you held consistently are gone.",
+        "goal": "Win back the citations you lost."
+      },
+      "recover_ai_traffic": {
+        "title": "Recover AI traffic across {targets}",
+        "titleGeneric": "Recover AI traffic",
+        "description": "AI-referred traffic fell significantly.",
+        "goal": "Bring AI traffic back."
+      },
+      "recover_lost_mentions": {
+        "title": "Recover lost mentions across {targets}",
+        "titleGeneric": "Recover lost mentions",
+        "description": "Your brand disappeared from prompts where it was mentioned.",
+        "goal": "Be named again where you were."
+      },
+      "recover_topic_visibility": {
+        "title": "Recover visibility in {targets}",
+        "titleGeneric": "Recover topic visibility",
+        "description": "Coverage of this topic fell significantly.",
+        "goal": "Recover your share of the topic."
+      },
+      "recover_platform_visibility": {
+        "title": "Recover visibility on {targets}",
+        "titleGeneric": "Recover platform visibility",
+        "description": "Visibility on this AI platform fell significantly.",
+        "goal": "Recover your position on the platform."
+      },
+      "recover_after_competitor_gains": {
+        "title": "Recover ground lost to {targets}",
+        "titleGeneric": "Recover after competitor gains",
+        "description": "A competitor passed you while you lost ground.",
+        "goal": "Take back the position."
+      },
+      "recover_cited_pages": {
+        "title": "Recover citations for {targets}",
+        "titleGeneric": "Recover previously cited pages",
+        "description": "Your pages that were cited are now cited nowhere.",
+        "goal": "Get these pages cited again."
+      },
+      "recover_high_value_prompts": {
+        "title": "Recover coverage across {targets}",
+        "titleGeneric": "Recover high-value prompt coverage",
+        "description": "You lost presence on prompts that carry real demand.",
+        "goal": "Recover the prompts that matter most."
+      },
+      "recover_search_performance": {
+        "title": "Recover search performance across {targets}",
+        "titleGeneric": "Recover search performance on AI-relevant pages",
+        "description": "Clicks fell on search queries tied to your tracked prompts.",
+        "goal": "Recover search performance while keeping AI visibility stable."
+      },
+      "recover_traffic_after_visibility_loss": {
+        "title": "Recover traffic across {targets} after visibility loss",
+        "titleGeneric": "Recover traffic after AI visibility loss",
+        "description": "AI visibility and AI-referred traffic fell in the same window. This is a correlation, not a proven cause.",
+        "goal": "Recover both visibility and the traffic that came with it."
+      },
+      "fix_crawler_access": {
+        "title": "Fix AI crawler access on {targets}",
+        "titleGeneric": "Fix AI crawler accessibility",
+        "description": "AI crawlers are blocked from these pages.",
+        "goal": "Let AI engines read your pages."
+      },
+      "fix_structured_data": {
+        "title": "Fix structured data on {targets}",
+        "titleGeneric": "Fix structured data issues",
+        "description": "Structured data is missing or invalid on these pages.",
+        "goal": "Describe your pages in a form engines understand."
+      },
+      "fix_content_gaps": {
+        "title": "Fix content gaps on {targets}",
+        "titleGeneric": "Fix content gaps",
+        "description": "These pages do not cover the queries they target.",
+        "goal": "Cover what the queries ask for."
+      },
+      "fix_outdated_content": {
+        "title": "Update {targets} that look outdated",
+        "titleGeneric": "Fix outdated content",
+        "description": "These pages fail freshness checks.",
+        "goal": "Keep content current enough to be cited."
+      },
+      "fix_entity_signals": {
+        "title": "Strengthen entity signals on {targets}",
+        "titleGeneric": "Fix weak entity signals",
+        "description": "These pages fail brand-entity or entity-coverage checks.",
+        "goal": "Make your brand unmistakable to AI engines."
+      },
+      "fix_broken_citation_targets": {
+        "title": "Fix broken citation targets on {targets}",
+        "titleGeneric": "Fix broken citation targets",
+        "description": "Your pages that AI answers cite are unavailable.",
+        "goal": "Keep cited pages reachable."
+      },
+      "fix_brand_inconsistency": {
+        "title": "Fix inconsistent brand information",
+        "titleGeneric": "Fix inconsistent brand information",
+        "description": "AI answers contradict each other about your brand.",
+        "goal": "Give engines one consistent account of your brand."
+      },
+      "fix_underperforming_ai_landing_pages": {
+        "title": "Improve {targets} that underperform for AI traffic",
+        "titleGeneric": "Fix underperforming AI landing pages",
+        "description": "AI traffic arrives on these pages and engages well below your site’s rate.",
+        "goal": "Make AI visits count."
+      },
+      "fix_internal_connectivity": {
+        "title": "Improve internal links across {targets}",
+        "titleGeneric": "Fix internal content connectivity",
+        "description": "These pages fail the internal-linking check.",
+        "goal": "Connect your content so engines follow it."
+      },
+      "fix_prompt_content_coverage": {
+        "title": "Fix content coverage for {targets}",
+        "titleGeneric": "Fix prompt-to-content coverage",
+        "description": "No page of yours is mapped to these prompts, and none has been cited.",
+        "goal": "Give every important prompt a page."
+      },
+      "improve_low_ctr_pages": {
+        "title": "Improve click-through on {targets}",
+        "titleGeneric": "Improve high-impression, low-CTR pages",
+        "description": "These queries earn far fewer clicks than their position usually does.",
+        "goal": "Turn impressions into visits while keeping AI visibility."
+      },
+      "align_search_and_ai_content": {
+        "title": "Align {targets} with AI demand",
+        "titleGeneric": "Fix search-to-AI content misalignment",
+        "description": "You rank in Google’s top three for these queries and are invisible in AI answers.",
+        "goal": "Carry search strength into AI answers."
+      },
+      "capture_competitor_cited_sources": {
+        "title": "Target {targets} citing competitors but not you",
+        "titleGeneric": "Capture competitor-cited sources",
+        "description": "These sources are cited where competitors appear and you do not.",
+        "goal": "Earn citations from sources that already reference your competitors."
+      },
+      "close_topic_coverage_gap": {
+        "title": "Close the coverage gap in {targets}",
+        "titleGeneric": "Close topic coverage gap",
+        "description": "A competitor holds a topic where you have pages but no presence.",
+        "goal": "Win back the topic."
+      },
+      "compete_on_high_value_prompts": {
+        "title": "Compete on {targets} where a competitor leads",
+        "titleGeneric": "Compete on high-value prompts",
+        "description": "A competitor appears on high-demand prompts where you are absent.",
+        "goal": "Win the prompts that matter most."
+      },
+      "capture_competitor_fanouts": {
+        "title": "Capture competitor-winning fan-outs across {targets}",
+        "titleGeneric": "Capture competitor query fan-outs",
+        "description": "Competitors appear on these follow-up queries and you do not.",
+        "goal": "Cover the research engines do on the way to an answer."
+      },
+      "respond_to_competitor_momentum": {
+        "title": "Respond to growth from {targets}",
+        "titleGeneric": "Respond to competitor momentum",
+        "description": "A competitor’s mentions are growing fast.",
+        "goal": "Answer the trend before it becomes a gap."
+      },
+      "earn_competitor_source_presence": {
+        "title": "Build presence across {targets} competitors win",
+        "titleGeneric": "Earn presence on competitor-winning sources",
+        "description": "Competitors win these sources across several prompts, and you never appear.",
+        "goal": "Get included where competitors are."
+      },
+      "create_content_for_competitor_gaps": {
+        "title": "Create content for {targets} where a competitor leads",
+        "titleGeneric": "Create content to close competitor gaps",
+        "description": "A competitor leads a topic you have no content for.",
+        "goal": "Create the content to compete."
+      },
+      "targets": {
+        "prompts": "{count, plural, one {# prompt} other {# prompts}}",
+        "pages": "{count, plural, one {# page} other {# pages}}",
+        "sources": "{count, plural, one {# source} other {# sources}}",
+        "queries": "{count, plural, one {# query} other {# queries}}",
+        "topics": "{count, plural, one {# topic} other {# topics}}",
+        "platforms": "{count, plural, one {# platform} other {# platforms}}",
+        "regions": "{count, plural, one {# region} other {# regions}}",
+        "competitors": "{count, plural, one {# competitor} other {# competitors}}"
+      }
+    },
+    "actionTasks": {
+      "analyze_losses": "Analyze lost citations and competitor sources",
+      "coverage_gaps": "Identify missing topic and entity coverage",
+      "update_content": "Update the target pages' content",
+      "internal_links": "Strengthen internal linking to affected pages",
+      "validate": "Validate across AI platforms",
+      "review_pages": "Review the affected high-value pages",
+      "optimize_content": "Optimize the content",
+      "identify_prompts": "Identify the prompts mentioning you without citation",
+      "create_citable_content": "Create or improve citable source content",
+      "strengthen_sources": "Strengthen the pages AI engines could cite",
+      "review_audits": "Review the failing audit findings",
+      "fix_issues": "Fix the highest-impact issues first",
+      "revalidate": "Re-run the audits to confirm the fixes",
+      "analyze_competitor": "Analyze what the competitor gained visibility with",
+      "strengthen_content": "Strengthen your content where they now win",
+      "diagnose_slip": "Diagnose what changed in the last week",
+      "review_responses": "Review the AI responses that stopped mentioning you",
+      "reinforce_content": "Reinforce the content behind the affected prompts",
+      "compare_platforms": "Compare how each engine answers the affected prompts",
+      "compare_citations": "Compare which sources cite the competitor and not you",
+      "identify_sources": "Identify the sources worth earning a citation from",
+      "analyze_losses_target": "Analyze lost citations across {promptCount, plural, one {1 prompt} other {# prompts}}",
+      "review_pages_target": "Review the {pageCount, plural, one {1 affected page} other {# affected pages}}",
+      "review_audits_target": "Review the failing findings on {pageCount, plural, one {1 page} other {# pages}}",
+      "identify_prompts_target": "Identify the {promptCount, plural, one {1 prompt} other {# prompts}} mentioning you without citation",
+      "compare_platforms_target": "Compare how {platform} answers the affected prompts against {bestPlatform}",
+      "compare_citations_target": "Compare which sources cite {competitor} and not you",
+      "analyze_competitor_target": "Analyze what {competitor} gained visibility with",
+      "measure_traffic_impact": "Measure what the drop cost in AI referral sessions",
+      "competitor_pressure": "Identify which competitors are gaining the ground you are losing",
+      "page_readiness": "Check the affected pages against their audit findings",
+      "analyze_ai_responses": "Analyze AI responses",
+      "analyze_ai_responses_target": "Analyze AI responses for {targets}",
+      "analyze_visibility_change": "Analyze the visibility change",
+      "analyze_visibility_change_target": "Analyze the visibility change across {targets}",
+      "analyze_platform_gap": "Compare visibility by AI platform",
+      "analyze_platform_gap_target": "Compare visibility across {targets}",
+      "analyze_country_gap": "Compare visibility by country",
+      "analyze_country_gap_target": "Compare visibility across {targets}",
+      "analyze_topic_gap": "Identify missing and declining topic clusters",
+      "analyze_topic_gap_target": "Identify missing clusters in {targets}",
+      "analyze_prompt_gap": "Inspect prompt-level presence",
+      "analyze_prompt_gap_target": "Inspect presence on {targets}",
+      "analyze_fanout_gap": "Inspect query fan-out coverage",
+      "analyze_fanout_gap_target": "Inspect coverage of {targets}",
+      "analyze_mention_context": "Inspect the contexts you are mentioned in",
+      "analyze_mention_context_target": "Inspect mention contexts across {targets}",
+      "analyze_citations": "Analyze citation sources",
+      "analyze_citations_target": "Analyze citations across {targets}",
+      "analyze_competitor_visibility": "Compare competitor visibility",
+      "analyze_competitor_visibility_target": "Compare competitor visibility across {targets}",
+      "analyze_competitor_citations": "Compare competitor citation sources",
+      "analyze_competitor_citations_target": "Compare competitor citations across {targets}",
+      "analyze_competitor_content": "Compare competitor content and coverage",
+      "analyze_competitor_content_target": "Compare competitor coverage across {targets}",
+      "analyze_ai_traffic": "Inspect AI-referred visits",
+      "analyze_ai_traffic_target": "Inspect AI-referred visits to {targets}",
+      "analyze_gsc_demand": "Inspect Search Console queries",
+      "analyze_gsc_demand_target": "Inspect Search Console demand for {targets}",
+      "analyze_gsc_ctr": "Find high-impression, low-CTR queries",
+      "analyze_gsc_ctr_target": "Inspect click-through on {targets}",
+      "analyze_ga4_outcomes": "Inspect engagement and key events",
+      "analyze_ga4_outcomes_target": "Inspect engagement and key events on {targets}",
+      "analyze_site_audit": "Review Site Audit findings",
+      "analyze_site_audit_target": "Review Site Audit findings on {targets}",
+      "analyze_entity_signals": "Audit entity consistency and coverage",
+      "analyze_entity_signals_target": "Audit entity signals on {targets}",
+      "analyze_internal_links": "Inspect internal linking",
+      "analyze_internal_links_target": "Inspect internal linking around {targets}",
+      "analyze_third_party_sources": "Inspect relevant third-party sources",
+      "analyze_third_party_sources_target": "Inspect {targets}",
+      "cluster_prompts": "Cluster the prompts into coherent groups",
+      "cluster_prompts_target": "Cluster {targets} into coherent groups",
+      "map_prompts_to_content": "Map prompts to your pages",
+      "map_prompts_to_content_target": "Map {targets} to your pages",
+      "map_queries_to_prompts": "Map search queries to tracked prompts",
+      "map_queries_to_prompts_target": "Map {targets} to tracked prompts",
+      "identify_target_pages": "Identify the pages to work on",
+      "identify_target_pages_target": "Identify the pages behind {targets}",
+      "identify_content_gaps": "Identify missing sections, topics and questions",
+      "identify_content_gaps_target": "Identify content gaps across {targets}",
+      "identify_new_content_need": "Confirm where no adequate page exists",
+      "identify_new_content_need_target": "Confirm which of {targets} need new content",
+      "identify_citation_gaps": "Identify missing citation opportunities",
+      "identify_citation_gaps_target": "Identify citation gaps across {targets}",
+      "identify_target_sources": "Select the sources to pursue",
+      "identify_target_sources_target": "Select which of {targets} to pursue",
+      "identify_inclusion_path": "Find a legitimate path to inclusion",
+      "identify_inclusion_path_target": "Find a legitimate path onto {targets}",
+      "prioritize_targets": "Prioritize targets by impact",
+      "prioritize_targets_target": "Prioritize {targets} by impact",
+      "define_validation_baseline": "Record the baseline to measure against",
+      "define_validation_baseline_target": "Record the baseline for {targets}",
+      "create_content_brief": "Create a content brief",
+      "create_content_brief_target": "Create content briefs for {targets}",
+      "create_content_draft": "Create a content draft",
+      "create_content_draft_target": "Draft content for {targets}",
+      "optimize_content_target": "Optimize content for {targets}",
+      "refresh_content": "Refresh outdated content",
+      "refresh_content_target": "Refresh content for {targets}",
+      "strengthen_reference_asset": "Make your pages more citable",
+      "strengthen_reference_asset_target": "Make pages more citable for {targets}",
+      "strengthen_entity_content": "Strengthen how your brand is described",
+      "strengthen_entity_content_target": "Strengthen brand descriptions for {targets}",
+      "add_internal_links": "Add internal links",
+      "add_internal_links_target": "Add internal links around {targets}",
+      "improve_cta_path": "Improve the page path and calls to action",
+      "improve_cta_path_target": "Improve paths and calls to action on {targets}",
+      "publish_content": "Publish the approved content",
+      "publish_content_target": "Publish content for {targets}",
+      "fix_crawler_access": "Fix crawler access directives",
+      "fix_crawler_access_target": "Fix crawler access on {targets}",
+      "fix_structured_data": "Add or correct structured data",
+      "fix_structured_data_target": "Fix structured data on {targets}",
+      "fix_broken_target": "Repair the broken page or redirect",
+      "fix_broken_target_target": "Repair {targets}",
+      "fix_technical_issue": "Resolve the audit issues",
+      "fix_technical_issue_target": "Resolve audit issues on {targets}",
+      "validate_technical_fix": "Re-check the technical fix",
+      "validate_technical_fix_target": "Re-audit {targets}",
+      "prepare_outreach": "Prepare outreach",
+      "prepare_outreach_target": "Prepare outreach for {targets}",
+      "execute_outreach": "Send the approved outreach",
+      "execute_outreach_target": "Send approved outreach to {targets}",
+      "prepare_contribution": "Prepare a contribution",
+      "prepare_contribution_target": "Prepare contributions for {targets}",
+      "track_third_party_status": "Track placement status",
+      "track_third_party_status_target": "Track placement on {targets}",
+      "validate_third_party_presence": "Verify your brand now appears",
+      "validate_third_party_presence_target": "Verify you appear on {targets}",
+      "validate_third_party_citation": "Verify the citation is live",
+      "validate_third_party_citation_target": "Verify citations from {targets}",
+      "validate_ai_visibility": "Validate AI visibility",
+      "validate_ai_visibility_target": "Validate AI visibility across {targets}",
+      "validate_mentions": "Validate mentions",
+      "validate_mentions_target": "Validate mentions across {targets}",
+      "validate_citations": "Validate citations",
+      "validate_citations_target": "Validate citations across {targets}",
+      "validate_topic_sov": "Validate topic share of voice",
+      "validate_topic_sov_target": "Validate share of voice in {targets}",
+      "validate_platform_visibility": "Validate platform visibility",
+      "validate_platform_visibility_target": "Validate visibility on {targets}",
+      "validate_country_visibility": "Validate country visibility",
+      "validate_country_visibility_target": "Validate visibility in {targets}",
+      "validate_ai_traffic": "Validate AI-referred traffic",
+      "validate_ai_traffic_target": "Validate AI traffic to {targets}",
+      "validate_gsc": "Validate Search Console performance",
+      "validate_gsc_target": "Validate Search Console performance for {targets}",
+      "validate_ga4": "Validate engagement and key events",
+      "validate_ga4_target": "Validate outcomes on {targets}",
+      "validate_competitive_gap": "Validate the competitive gap",
+      "validate_competitive_gap_target": "Validate the gap with {targets}",
+      "measure_action_outcome": "Measure the outcome",
+      "measure_action_outcome_target": "Measure the outcome across {targets}",
+      "targets": {
+        "prompts": "{count, plural, one {# prompt} other {# prompts}}",
+        "pages": "{count, plural, one {# page} other {# pages}}",
+        "sources": "{count, plural, one {# source} other {# sources}}",
+        "queries": "{count, plural, one {# query} other {# queries}}",
+        "topics": "{count, plural, one {# topic} other {# topics}}",
+        "platforms": "{count, plural, one {# platform} other {# platforms}}",
+        "regions": "{count, plural, one {# region} other {# regions}}",
+        "competitors": "{count, plural, one {# competitor} other {# competitors}}"
+      }
+    },
+    "taskStatus": {
+      "todo": "To Do",
+      "in_progress": "In Progress",
+      "waiting_approval": "Waiting Approval",
+      "completed": "Completed",
+      "skipped": "Skipped",
+      "failed": "Failed"
+    },
+    "historyPage": {
+      "title": "History",
+      "subtitle": "Browse past actions, what they were meant to do, and what has been measured since.",
+      "table": {
+        "action": "Action",
+        "type": "Type",
+        "impact": "Impact",
+        "affected": "Affected",
+        "result": "Result",
+        "status": "Status",
+        "date": "Date"
+      },
+      "status": {
+        "new": "New",
+        "in_progress": "In Progress",
+        "on_hold": "On Hold",
+        "completed": "Completed",
+        "dismissed": "Dismissed"
+      },
+      "affected": {
+        "prompt": "{count} prompts",
+        "url": "{count} pages",
+        "citation": "{count} signals",
+        "keyword": "{count} keywords",
+        "topic": "{count} topics",
+        "competitor": "Competitor",
+        "platform": "{count} platforms"
+      },
+      "range": {
+        "7d": "7d",
+        "30d": "30d",
+        "90d": "90d",
+        "all": "All"
+      },
+      "sort": {
+        "newest": "Newest",
+        "oldest": "Oldest",
+        "impact": "Impact"
+      },
+      "filters": {
+        "status": "Status",
+        "type": "Type",
+        "impact": "Impact",
+        "source": "Source",
+        "sort": "Sort",
+        "all": "All",
+        "search": "Search actions…",
+        "clear": "Clear filters"
+      },
+      "cards": {
+        "total": "Total Actions",
+        "totalSub": "in this window",
+        "completed": "Completed",
+        "inProgress": "In Progress",
+        "noImprovement": "No Improvement",
+        "dismissed": "Dismissed",
+        "ofTotal": "{percent}% of total"
+      },
+      "pagination": {
+        "showing": "Showing {from}–{to} of {total} actions",
+        "page": "{page} / {pageCount}",
+        "previous": "Previous",
+        "next": "Next"
+      },
+      "drawer": {
+        "goal": "What was the goal?",
+        "whatHappened": "What happened?",
+        "triggeredBy": "Consolidated from {count} signals",
+        "result": "Result",
+        "visibilityChange": "Visibility Change",
+        "citationsChange": "Citations Change",
+        "promptsImproved": "Prompts Improved",
+        "timeToClose": "Time to Close",
+        "vsBefore": "vs before",
+        "netChange": "net change",
+        "ofAffected": "of affected",
+        "fromStart": "from start",
+        "days": "{n} days",
+        "affected": "Affected",
+        "noAffected": "Nothing recorded.",
+        "tasks": "Tasks ({completed}/{total})",
+        "noTasks": "No tasks were created.",
+        "viewAction": "View action →"
+      },
+      "empty": {
+        "title": "No action history yet",
+        "description": "Actions appear here once they are underway or closed. Nothing has reached that point for this brand."
+      },
+      "noMatch": {
+        "title": "No actions match these filters",
+        "clear": "Clear filters"
+      },
+      "error": {
+        "title": "We couldn't load action history.",
+        "retry": "Try again"
+      },
+      "noBrand": {
+        "title": "No brand selected",
+        "description": "Select a brand to view its action history."
+      },
+      "outcomeHint": {
+        "pending_measurement": "no result recorded",
+        "improved": "vs before",
+        "no_meaningful_change": "vs before",
+        "declined": "vs before",
+        "not_measurable": "action was dismissed"
+      },
+      "outcomeExplain": {
+        "pending_measurement": "This action's effect has not been measured. The metrics below fill in once validation runs.",
+        "improved": "Measured after this action closed.",
+        "no_meaningful_change": "Measured after this action closed; the metrics did not move.",
+        "declined": "Measured after this action closed; the metrics moved the wrong way.",
+        "not_measurable": "This action was dismissed, so nothing was measured."
+      }
+    },
+    "actionOutcome": {
+      "pending_measurement": "Not measured",
+      "improved": "Improved",
+      "no_meaningful_change": "No meaningful change",
+      "declined": "Declined",
+      "not_measurable": "Not measurable"
+    }
+  },
+  "agent": {
+    "newChat": "New chat",
+    "noConversations": "No conversations yet.",
+    "deleteConversation": "Delete conversation",
+    "deleteConfirm": "Delete this conversation?",
+    "loadingConversation": "Loading conversation…",
+    "thinking": "Thinking…",
+    "inputPlaceholder": "Ask about visibility, competitors, citations…",
+    "stop": "Stop",
+    "copied": "Copied",
+    "copyMessage": "Copy message",
+    "toolInput": "Input",
+    "toolOutput": "Output",
+    "toolError": "Error",
+    "emptyTitle": "Ask the agent",
+    "emptyBody": "Grounded in your tracked data. Try",
+    "emptyExample1": "“how is my brand doing?”",
+    "emptyBodyOr": "or",
+    "emptyExample2": "“who's gaining share of voice this month?”",
+    "keyMissingTitle": "Add your Anthropic API key",
+    "keyMissingBody": "The agent uses your own Anthropic key to call Claude directly — usage is billed to your Anthropic account, not to Zentic. Paste a key in Settings to unlock the chat.",
+    "goToSettings": "Go to Settings",
+    "planGateTitle": "Agent is a {plan} feature",
+    "planGateBody": "Upgrade your plan to chat with your dashboard about visibility, competitors, citations, and content gaps."
+  },
+  "audit": {
+    "title": "Site Audit",
+    "description": "Score any page against the 47-signal AEO/GEO",
+    "runAudit": "Run Audit",
+    "running": "Auditing…",
+    "recent": "Recent Audits",
+    "retry": "Retry",
+    "deleteAudit": "Delete audit",
+    "loadFailed": "Couldn't load this audit",
+    "reaudit": "Re-run audit",
+    "deleteConfirm": "This permanently deletes this audit and its results. This can't be undone.",
+    "cancel": "Cancel",
+    "auditsLeft": "audits left this month",
+    "scoreOverTime": "Score over time",
+    "categoryBreakdown": "Category breakdown",
+    "inRange": "in range",
+    "trendNeedsMore": "Run at least two audits of your homepage to see the trend.",
+    "noBrand": "Select a brand first.",
+    "urlRequired": "Enter a URL to audit.",
+    "failed": "Audit failed. Please try again.",
+    "takingLongerThanExpected": "This audit is taking longer than expected.",
+    "checkAgain": "Check again",
+    "grade": {
+      "good": "Good",
+      "needsWork": "Needs work",
+      "poor": "Poor"
+    },
+    "summary": {
+      "passed": "passed",
+      "warnings": "warnings",
+      "failed": "failed"
+    },
+    "status": {
+      "running": "Running",
+      "completed": "Completed",
+      "failed": "Failed"
+    },
+    "all": "All",
+    "na": "n/a",
+    "copied": "Copied",
+    "copyFailed": "Copy failed",
+    "copyDraft": "Copy draft",
+    "finding": "Finding",
+    "why": "Why",
+    "recommendedFix": "Recommended fix",
+    "fix": "Fix",
+    "signalsEvaluated": "signals evaluated",
+    "aiRecommendations": "AI Recommendations",
+    "signals": "Signals",
+    "onlyIssues": "Issues only",
+    "allSignals": "All signals",
+    "noIssues": "No issues found — every evaluated signal passed.",
+    "stages": {
+      "fetch": "Fetching the page…",
+      "analyze": "Analyzing 47 signals…",
+      "recommend": "Generating AI recommendations…"
+    },
+    "emptyTitle": "Audit any page for AI search readiness",
+    "emptyBody": "Enter a URL above to score it against 47 AEO/GEO signals and get AI-written fixes."
+  },
+  "auth": {
+    "signIn": "Sign in",
+    "signUp": "Sign up",
+    "signOut": "Sign out",
+    "email": "Email",
+    "password": "Password",
+    "forgotPassword": "Forgot password?",
+    "noAccount": "Don't have an account?",
+    "hasAccount": "Already have an account?",
+    "createAccount": "Create account",
+    "signingIn": "Signing in...",
+    "signingUp": "Creating account...",
+    "emailPlaceholder": "you@company.com",
+    "passwordPlaceholder": "••••••••",
+    "fullName": "Full name",
+    "fullNamePlaceholder": "John Doe",
+    "magicLink": "Send magic link",
+    "magicLinkSent": "Check your email for the sign-in link.",
+    "verificationEmailSent": "We sent you a verification email. Check your inbox to confirm your account.",
+    "verificationPending": "We sent a verification email to your inbox. Please click the link to verify your account before signing in.",
+    "forgotPasswordTitle": "Reset your password",
+    "forgotPasswordSubtitle": "Enter your email and we'll send you a link to reset your password.",
+    "sendResetLink": "Send reset link",
+    "sendingResetLink": "Sending...",
+    "resetLinkSent": "If that email exists, we've sent a reset link. Check your inbox.",
+    "backToSignIn": "Back to sign in",
+    "resetPasswordTitle": "Set a new password",
+    "resetPasswordSubtitle": "Choose a new password for your account.",
+    "newPassword": "New password",
+    "confirmPassword": "Confirm password",
+    "updatePassword": "Update password",
+    "updatingPassword": "Updating...",
+    "passwordUpdated": "Your password has been updated. You can now sign in.",
+    "orContinueWith": "Or continue with",
+    "termsAgreement": "By continuing, you agree to our",
+    "termsOfService": "Terms of Service",
+    "and": "and",
+    "privacyPolicy": "Privacy Policy",
+    "errors": {
+      "invalidCredentials": "Invalid email or password.",
+      "emailRequired": "Email is required.",
+      "passwordRequired": "Password is required.",
+      "passwordTooShort": "Password must be at least 8 characters.",
+      "passwordMismatch": "Passwords do not match.",
+      "generic": "An error occurred. Please try again.",
+      "emailNotConfirmed": "Please verify your email address first. Check your inbox for the confirmation link.",
+      "signOutError": "Failed to sign out. Please try again."
+    }
+  },
+  "dashboard": {
+    "overview": "Overview",
+    "welcome": "Welcome back",
+    "visibilityScore": "Visibility Score",
+    "totalMentions": "Total Mentions",
+    "totalCitations": "Total Citations",
+    "activePlatforms": "Active Platforms",
+    "recentActivity": "Recent Activity",
+    "quickActions": "Quick Actions",
+    "viewAll": "View all"
+  },
+  "insights": {
+    "title": "Answer Engine Insights",
+    "description": "Monitor how your brand is represented in AI-generated answers.",
+    "runPrompts": "Run Prompts",
+    "runPromptsNow": "Run Prompts Now",
+    "promptResults": "Prompt Results",
+    "platform": "Platform",
+    "mentions": "Mentions",
+    "citations": "Citations",
+    "sentiment": "Sentiment",
+    "score": "Score",
+    "positive": "Positive",
+    "positiveSentiment": "Positive Sentiment",
+    "neutral": "Neutral",
+    "negative": "Negative",
+    "sovByPlatform": "Share of Voice by Platform"
+  },
+  "topics": {
+    "addTopic": "Add Topic",
+    "addTopicDescription": "Create a new topic for this brand.",
+    "topicAlreadyExists": "This topic already exists",
+    "topicAdded": "\"{name}\" added. Assign prompts to this topic to start tracking it.",
+    "failedToAddTopic": "Failed to add topic",
+    "noBrandTitle": "No brand selected",
+    "noBrandBody": "Select a brand from the top switcher to view topic analytics.",
+    "title": "Topics",
+    "description": "Topic-level analytics across all tracked prompts (last 30 days)",
+    "exportHint": "No topics yet - add topics or run a tracking job first.",
+    "manageTopics": "Manage topics",
+    "kpi": {
+      "trackedTopics": "Tracked topics",
+      "unassignedPrompts": "{count, plural, one {# prompt without a topic} other {# prompts without a topic}}",
+      "allCategorised": "All prompts categorised",
+      "bestPerformer": "Best performer",
+      "biggestGap": "Biggest gap",
+      "topMover": "Top mover (7d)",
+      "noDataYet": "No data yet",
+      "notEnoughData": "Not enough data"
+    },
+    "ptsChange": "{value} pts",
+    "leaderboardTitle": "Topic leaderboard",
+    "leaderboardHint": "Click a topic to drill into detailed analytics",
+    "emptyTitle": "No topics defined yet.",
+    "emptyBody": "Add topics from brand settings to enable topic-based analytics.",
+    "loadError": "Failed to load topics",
+    "columns": {
+      "topic": "Topic",
+      "prompts": "Prompts",
+      "visibility": "Visibility (30d)",
+      "sov": "SoV",
+      "mentions": "Mentions",
+      "citations": "Citations",
+      "trend": "Trend",
+      "topCompetitor": "Top competitor",
+      "lastRun": "Last run"
+    },
+    "appearedIn": "Appeared in {visible} of {active, plural, one {# prompt} other {# prompts}}",
+    "openDetails": "Open topic details"
+  },
+  "content": {
+    "title": "Content Opportunities",
+    "description": "AI-powered content recommendations to improve your visibility in AI-generated answers.",
+    "opportunities": "Opportunities",
+    "generate": "Generate Opportunities",
+    "autoGeneratedHint": "Opportunities are generated automatically as your tracking data comes in.",
+    "regenerate": "Refresh Opportunities",
+    "generating": "Analyzing...",
+    "send": "Send",
+    "sendToWorkflow": "Send to Workflow",
+    "sending": "Sending...",
+    "noResults": "No opportunities match your filters.",
+    "clearFilters": "Clear filters",
+    "dismiss": "Dismiss",
+    "dismissedToast": "Opportunity dismissed",
+    "undo": "Undo",
+    "undoFailed": "Failed to undo",
+    "cancel": "Cancel",
+    "viewDetails": "View Details",
+    "configureWebhook": "Configure Webhook",
+    "noOpportunities": "No content opportunities yet",
+    "noOpportunitiesHint": "Generate opportunities to get AI-powered content recommendations based on your prompt data.",
+    "noPromptsHint": "Add prompts and run volume analysis first to generate content opportunities.",
+    "available": "{count} Available",
+    "status": {
+      "new": "New",
+      "sent": "Sent to Workflow",
+      "in_progress": "In Progress",
+      "done": "Done",
+      "dismissed": "Dismissed"
+    },
+    "impact": {
+      "high": "High",
+      "medium": "Medium",
+      "low": "Low"
+    },
+    "type": {
+      "owned": "Owned",
+      "earned": "Earned"
+    },
+    "kpi": {
+      "total": "Total Opportunities",
+      "highImpact": "High Impact",
+      "sentToWorkflow": "Sent to Workflow",
+      "avgScore": "Avg. Score",
+      "shown": "{count} shown",
+      "opportunities": "opportunities",
+      "outOf100": "out of 100",
+      "sentOrInProgress": "sent or in progress"
+    },
+    "filters": {
+      "allStatuses": "All Statuses",
+      "allImpacts": "All Impacts",
+      "allTypes": "All Types"
+    },
+    "bulk": {
+      "selected": "{count} selected",
+      "sendAll": "Send All",
+      "dismissAll": "Dismiss All",
+      "dismissAllTitle": "Dismiss opportunities?",
+      "dismissAllConfirm": "{count, plural, one {This will dismiss # opportunity.} other {This will dismiss # opportunities.}} This can't be undone.",
+      "deleteAll": "Delete",
+      "deleteAllTitle": "Delete opportunities?",
+      "deleteAllConfirm": "{count, plural, one {This permanently deletes # opportunity.} other {This permanently deletes # opportunities.}} Dismissing instead keeps them out of your way without removing them.",
+      "deleteAllBriefWarning": "{count, plural, one {# of them has a generated brief, which is deleted too and does not return your monthly brief allowance.} other {# of them have generated briefs, which are deleted too and do not return your monthly brief allowance.}}",
+      "deletedToast": "{count, plural, one {Deleted # opportunity} other {Deleted # opportunities}}"
+    },
+    "table": {
+      "action": "Action",
+      "type": "Type",
+      "impact": "Impact",
+      "score": "Score",
+      "status": "Status",
+      "actions": "Actions"
+    },
+    "detail": {
+      "backToList": "Back to Opportunities",
+      "sourceData": "Source Data",
+      "relatedPrompt": "Related Prompt",
+      "estAiVolume": "Est. AI Volume",
+      "visibility": "Current Visibility",
+      "competitorGap": "Competitor Gap",
+      "intent": "Search Intent",
+      "keywords": "Keywords",
+      "competitorsCited": "Competitors Cited",
+      "webhookStatus": "Webhook Status",
+      "notSentYet": "Not sent to any workflow yet.",
+      "sentAt": "Sent at {date}",
+      "webhookResponse": "Webhook Response"
+    },
+    "webhook": {
+      "title": "Webhook Settings",
+      "description": "Connect your workflow automation tool (n8n, Make, Zapier) to receive opportunities.",
+      "url": "Webhook URL",
+      "urlPlaceholder": "https://your-n8n-instance.com/webhook/...",
+      "secret": "Secret Key (optional)",
+      "secretPlaceholder": "Optional shared secret for verification",
+      "test": "Test Webhook",
+      "testing": "Testing...",
+      "testSuccess": "Webhook responded successfully!",
+      "testFailed": "Webhook test failed: {error}",
+      "save": "Save Webhook",
+      "saving": "Saving...",
+      "saved": "Webhook saved!",
+      "active": "Active",
+      "inactive": "Inactive",
+      "noWebhook": "No webhook configured",
+      "setupFirst": "Set up a webhook to send opportunities to your workflow tools.",
+      "urlRequired": "Webhook URL is required",
+      "urlRequiredTest": "Enter a webhook URL first",
+      "saveError": "Failed to save webhook config"
+    },
+    "loadError": "Failed to load content opportunities",
+    "loadOpportunityError": "Failed to load opportunity",
+    "generatedToast": "Generated {count} opportunities",
+    "generationFailed": "Generation failed — please try again",
+    "generationTimedOut": "Generation timed out — please try again",
+    "generateError": "Failed to generate opportunities",
+    "sentToWorkflow": "Sent to workflow!",
+    "sendError": "Failed to send",
+    "dismissError": "Failed to dismiss",
+    "bulkSentToast": "Sent {sent} opportunities to workflow",
+    "bulkSendPartialError": "{failed} failed to send",
+    "bulkSendError": "Failed to send opportunities.",
+    "bulkDoneToast": "Marked {updated} opportunities as done",
+    "bulkUpdateError": "Bulk update failed",
+    "bulkDismissToast": "Dismissed {updated} opportunities",
+    "bulkDismissError": "Bulk dismiss failed",
+    "bulkDeleteError": "Bulk delete failed",
+    "briefGeneratedToast": "Content brief generated!",
+    "briefGenerateError": "Failed to generate brief"
+  },
+  "traffic": {
+    "title": "AI Traffic Analytics",
+    "description": "Track which AI bots are crawling your website.",
+    "totalCrawls": "Total Crawls",
+    "uniqueBots": "Unique Bots",
+    "referralTraffic": "AI Referral Traffic",
+    "topPages": "Top Crawled Pages"
+  },
+  "prompts": {
+    "title": "Prompt Volumes",
+    "description": "Discover query volumes and trends across AI platforms.",
+    "totalVolume": "Total Volume",
+    "trending": "Trending",
+    "presenceRate": "Presence Rate",
+    "gaps": "Content Gaps"
+  },
+  "competitors": {
+    "title": "Competitors",
+    "description": "Manage competitors and compare AI visibility head-to-head.",
+    "addCompetitor": "Add Competitor",
+    "name": "Name",
+    "namePlaceholder": "e.g. Acme Corp",
+    "domain": "Domain",
+    "domainPlaceholder": "e.g. acme.com",
+    "visibilityScore": "Visibility Score",
+    "mentions": "Mentions",
+    "citations": "Citations",
+    "trackedCompetitors": "Tracked Competitors",
+    "selectToCompare": "Select a competitor to see head-to-head comparison.",
+    "selected": "Selected",
+    "noData": "No data",
+    "emptyTitle": "No competitors yet",
+    "emptyDescription": "Add competitor domains to compare their AI visibility against yours across all AI platforms.",
+    "addDescription": "Enter the competitor's name and website domain to start tracking their AI visibility.",
+    "add": "Add",
+    "cancel": "Cancel",
+    "addSuccess": "Competitor added successfully.",
+    "addError": "Failed to add competitor.",
+    "deleteSuccess": "Competitor removed.",
+    "deleteError": "Failed to remove competitor.",
+    "delete": "Delete",
+    "confirmDeleteTitle": "Remove {name}?",
+    "confirmDeleteDescription": "This will stop tracking {name} and remove it from your competitor list. Historical comparison data for this competitor will remain in past results but cannot be linked back to a competitor record.",
+    "confirmDeleteAction": "Yes, remove competitor",
+    "loadError": "Failed to load competitors.",
+    "upgradeTitle": "Unlock Competitor Tracking",
+    "upgradeDescription": "Upgrade your plan to track competitor AI visibility and compare your brand's performance across AI platforms.",
+    "upgradeRequiredPlan": "Starter Plan Required",
+    "noBrandTitle": "No brand selected",
+    "noBrandDescription": "Select or create a brand to start tracking competitors.",
+    "h2h": {
+      "title": "{brand} vs {competitor}",
+      "yourAvg": "Your Avg. Score",
+      "theirAvg": "Their Avg. Score",
+      "overallDiff": "Score Difference",
+      "platformBreakdown": "Platform Breakdown",
+      "promptByPrompt": "Prompt-by-Prompt Comparison",
+      "promptByPromptDesc": "Click a prompt to expand and see per-platform breakdown.",
+      "comparison": "Comparison",
+      "prompt": "Prompt",
+      "diff": "Diff",
+      "platform": "Platform",
+      "gaps": "Gaps",
+      "strengths": "Strengths",
+      "you": "You",
+      "them": "Them",
+      "noGaps": "No gaps found — you're ahead on all prompts!",
+      "noStrengths": "No strengths found — competitor leads on all prompts.",
+      "noPromptData": "No prompt-level data available. Run a tracking check first.",
+      "noDataTitle": "No comparison data",
+      "noDataDescription": "Run a tracking check from the Insights page to generate comparison data for this competitor.",
+      "loadError": "Failed to load comparison data."
+    }
+  },
+  "citations": {
+    "title": "Citations",
+    "description": "Domains and URLs that AI platforms cite when mentioning you — and your competitors.",
+    "kpiTotalCitations": "Total Citations",
+    "kpiTotalCitationsSub": "Across {results} tracked results",
+    "kpiUniqueDomains": "Unique Domains",
+    "kpiUniqueDomainsSub": "{urls} unique URLs",
+    "kpiAvgPerResult": "Avg citations per result",
+    "kpiAvgPerResultSub": "Number of links per AI answer",
+    "sourcesTitle": "Top Sources",
+    "sourceTypesTitle": "Source Types",
+    "tabDomains": "Domains",
+    "tabUrls": "URLs",
+    "excludeOwnDomain": "Exclude own domain",
+    "competitorsOnly": "Competitors only",
+    "noBrandTitle": "No brand selected",
+    "noBrandDescription": "Select or create a brand to see the citations AI platforms use when answering about it."
+  },
+  "shopping": {
+    "title": "Shopping",
+    "description": "Product cards AI engines surface — your products versus the competitive set.",
+    "kpiCardRate": "Shopping card rate",
+    "kpiCardRateSub": "Tracked prompts that returned ≥1 card",
+    "kpiOwnProducts": "Your products surfaced",
+    "kpiOwnProductsSub": "Cards matched to your brand",
+    "kpiSov": "Shopping share of voice",
+    "kpiSovSub": "Your cards ÷ all cards in card-bearing prompts",
+    "kpiTopMerchant": "Top merchant for your products",
+    "kpiTopMerchantSub": "Most frequent merchant domain",
+    "platformBreakdownTitle": "Card rate by platform",
+    "trendTitle": "Your shopping presence — last 30 days",
+    "filterRegion": "Region",
+    "filterPlatform": "Platform",
+    "filterDateRange": "Date range",
+    "noBrandTitle": "No brand selected",
+    "noBrandDescription": "Select or create a brand to see shopping card analytics for it.",
+    "emptyTitle": "No shopping cards yet",
+    "emptyDescription": "Perplexity, Google AI Mode, and Microsoft Copilot return shopping cards on commercial-intent prompts (\"best running shoes for marathon training\"). Once tracking runs against a card-eligible prompt, results show up here.",
+    "lockedTitle": "Upgrade for full shopping analytics",
+    "lockedDescription": "Free and Starter plans see the shopping card rate. Growth unlocks the My Products tab, competitor breakdown, card-eligible prompts, and merchant analytics.",
+    "tabOverview": "Overview",
+    "tabMyProducts": "My Products",
+    "tabCompetitors": "Competitors",
+    "colProductTitle": "Product Title",
+    "colPlatforms": "Platforms",
+    "colRegions": "Regions",
+    "colImpressions": "Impressions",
+    "colLastPrice": "Last Price",
+    "colTopMerchant": "Top Merchant",
+    "colLastSeen": "Last Seen",
+    "colImage": "Image",
+    "appearancesTitle": "Appearances",
+    "appearancePrompt": "Prompt",
+    "appearanceDate": "Date",
+    "appearanceRegion": "Region",
+    "appearancePlatform": "Platform",
+    "appearanceMerchant": "Merchant Link",
+    "appearanceRaw": "Raw Card Details",
+    "compDistinctProducts": "Distinct Products",
+    "compSov": "Shopping SOV",
+    "compSummaryTitle": "Competitor Summary",
+    "competitorName": "Competitor",
+    "tabPrompts": "Card-eligible prompts",
+    "kpiTriggerRate": "Trigger rate",
+    "kpiTriggerRateSub": "% of tracked prompts returning ≥1 card",
+    "searchPrompts": "Search prompts...",
+    "tablePrompt": "Prompt",
+    "tableTopic": "Topic",
+    "tablePlatforms": "Platforms with cards",
+    "tableTotalCards": "Total cards",
+    "tableSplitBar": "Own / Competitor / Other",
+    "tableLastSeen": "Last seen",
+    "noPromptsFound": "No card-eligible prompts found",
+    "noPromptsFoundSub": "Try widening your date range or removing filters.",
+    "drawerTitle": "Shopping Card Appearances",
+    "drawerSubtitle": "Occurrences of product cards for this prompt",
+    "drawerTimestamp": "Timestamp",
+    "drawerPlatform": "Platform",
+    "drawerRegion": "Region",
+    "drawerCardsTitle": "Cards returned"
+  },
+  "reports": {
+    "title": "Reports",
+    "description": "Export and share your AI visibility reports.",
+    "generateReport": "Generate Report",
+    "downloadPDF": "Download PDF",
+    "downloadFailed": "PDF export failed. Please try again.",
+    "dateRange": "Date Range",
+    "platforms": "Platforms",
+    "libraryTitle": "Generated Reports",
+    "emptyLibrary": "No reports yet. Generate your first report to see it here.",
+    "loadFailed": "Failed to load reports",
+    "generated": "Report generated",
+    "generateFailed": "Report generation failed. Please try again.",
+    "generating": "Generating…",
+    "deleteTitle": "Delete report",
+    "deleteConfirm": "Delete this report?",
+    "deleteFailed": "Failed to delete report",
+    "selectDates": "Pick a start and end date",
+    "templateLabel": "Template",
+    "templates": {
+      "weekly_visibility": {
+        "name": "Weekly Visibility Summary",
+        "description": "A tight weekly pulse: visibility KPIs, trend and share of voice."
+      },
+      "executive_summary": {
+        "name": "Monthly Executive Report",
+        "description": "The full picture: every section, ready for a monthly review."
+      },
+      "competitor_benchmark": {
+        "name": "Competitor Benchmark",
+        "description": "Where you stand against each competitor, and who moved."
+      },
+      "citation_sources": {
+        "name": "Citation & Sources Report",
+        "description": "Which domains and source types AI engines cite around your brand."
+      }
+    },
+    "sections": {
+      "kpis": "KPIs",
+      "trend": "Trend",
+      "shareOfVoice": "Share of Voice",
+      "competitors": "Competitors",
+      "topicPerformance": "Topics",
+      "promptPerformance": "Prompts",
+      "queryFanout": "Fan-out",
+      "aiTraffic": "AI Traffic",
+      "shoppingVisibility": "Shopping",
+      "auditScore": "Audit Score",
+      "citations": "Citations",
+      "mentionEvidence": "Mention Evidence",
+      "citationEvidence": "Citation Evidence"
+    },
+    "missingSections": "Some sections could not be gathered and are not in this report:",
+    "brandLabel": "Brand",
+    "sectionsLabel": "Sections",
+    "selectSections": "Pick at least one section",
+    "dialogTitle": "Generate Report",
+    "dialogDescription": "Snapshot your brand's AI visibility for a period, with an AI-written executive summary.",
+    "reportTitleLabel": "Title (optional)",
+    "reportTitlePlaceholder": "e.g. Q2 Executive Summary",
+    "presets": {
+      "7d": "Last 7 days",
+      "30d": "Last 30 days",
+      "90d": "Last 90 days",
+      "custom": "Custom"
+    },
+    "columns": {
+      "title": "Title",
+      "period": "Period",
+      "created": "Created",
+      "actions": "Actions",
+      "brand": "Brand",
+      "change": "Change",
+      "domain": "Domain",
+      "sourceType": "Source Type",
+      "usage": "Usage",
+      "prompt": "Prompt",
+      "runs": "Runs",
+      "query": "Query",
+      "engines": "Engines",
+      "timesSearched": "Times Searched",
+      "topic": "Topic",
+      "results": "Results",
+      "platform": "Platform",
+      "topPages": "Top Pages",
+      "date": "Date",
+      "mentions": "Mentions",
+      "excerpt": "How you were mentioned",
+      "url": "URL",
+      "citations": "Citations",
+      "citedIn": "Cited in"
+    },
+    "topicPerformance": "Topic Performance",
+    "aiTraffic": "AI Traffic",
+    "shoppingVisibility": "Shopping Visibility",
+    "auditScore": "Site Audit Score",
+    "auditedOn": "Audited on",
+    "shopping": {
+      "sov": "Shopping SoV",
+      "products": "Products Surfaced",
+      "cardRate": "Card Rate",
+      "topMerchant": "Top Merchant"
+    },
+    "visibilityTrend": "Visibility Trend",
+    "bestPrompts": "Best Performing Prompts",
+    "worstPrompts": "Weakest Prompts",
+    "queryFanout": "Query Fan-out",
+    "queryFanoutDescription": "Sub-queries answer engines actually ran while answering your tracked prompts.",
+    "fanoutCoverage": "{queries} distinct sub-queries across {answers} answers",
+    "notFound": "Report not found.",
+    "backToReports": "Back to Reports",
+    "generatedOn": "Generated on",
+    "executiveSummary": "Executive Summary",
+    "kpi": {
+      "visibility": "Visibility",
+      "visibilityRate": "Visibility",
+      "visibilityRateSub": "{visible}/{total} prompts",
+      "avgScore": "Avg. Score",
+      "mentions": "Mentions",
+      "citations": "Brand Citations",
+      "sentiment": "Positive Sentiment"
+    },
+    "shareOfVoice": "Share of Voice",
+    "competitorLeaderboard": "Competitor Leaderboard",
+    "topCitationSources": "Top Citation Sources",
+    "citationTotals": "{domains} domains · {citations} citations in this period",
+    "noData": "No data for this period.",
+    "you": "(you)",
+    "kpiCitationsNote": "\"Brand Citations\" counts citations of your own site in AI answers.",
+    "citationsSectionNote": "All sources AI answers cited around your brand — not just your own site.",
+    "mentionEvidence": "Mention Evidence",
+    "mentionEvidenceDescription": "The answers that mentioned you most in this period, with the passage around the mention.",
+    "citationEvidence": "Citation Evidence",
+    "citationEvidenceDescription": "The URLs AI answers cited most in this period, and which tracked prompts surfaced them."
+  },
+  "settings": {
+    "title": "Settings",
+    "description": "Manage your project and account settings.",
+    "account": "Account",
+    "accountDescription": "Your profile and sign-in details.",
+    "theme": "Theme",
+    "themeDescription": "Choose light or dark mode for the dashboard.",
+    "general": "General",
+    "apiKeys": "API Keys",
+    "team": "Team",
+    "notifications": "Notifications",
+    "notificationsDescription": "Daily Pulse — a short digest per brand after each tracking run, with highlights and warnings.",
+    "pulseFrequency_daily": "Daily",
+    "pulseFrequency_weekly": "Weekly",
+    "pulseFrequency_notable": "Only when notable",
+    "pulseFrequency_off": "Off",
+    "pulseRecipients": "Recipients",
+    "pulseRecipientsPlaceholder": "alex@example.com, sam@example.com",
+    "pulseRecipientsHint": "Comma-separated email addresses. Leave empty to send to every organization member.",
+    "pulseSaved": "Notification settings saved",
+    "pulseSaveFailed": "Could not save notification settings. Please try again.",
+    "pulseLoadFailed": "Could not load notification settings.",
+    "pulseNoBrands": "No active brands yet — add a brand to configure its Daily Pulse.",
+    "billing": "Billing",
+    "danger": "Danger Zone",
+    "displayName": "Display Name",
+    "email": "Email",
+    "save": "Save changes",
+    "saved": "Changes saved!",
+    "signOut": "Sign out",
+    "billingDescription": "Manage your subscription and billing details.",
+    "currentPlan": "Current Plan",
+    "month": "mo",
+    "year": "yr",
+    "unlimited": "Unlimited",
+    "brands": "brands",
+    "prompts": "prompt locations tracked",
+    "platforms": "answer engines",
+    "teamMembers": "team members",
+    "renewsOn": "Renews on {date}",
+    "cancelsOn": "Subscription ends on {date}",
+    "changePlan": "Change Plan",
+    "upgradeTo": "Upgrade to {plan}",
+    "downgradeTo": "Downgrade to {plan}",
+    "changePlanConfirmTitle": "Change to {plan}?",
+    "changePlanConfirmDescription": "You will be switched to the {plan} plan at ${price}/mo. Proration will be applied to your next invoice.",
+    "changePlanConfirm": "Confirm Change",
+    "processing": "Processing...",
+    "cancelSubscription": "Cancel Subscription",
+    "cancelConfirmTitle": "Cancel your subscription?",
+    "cancelConfirmDescription": "Your subscription will remain active until the end of the current billing period. After that, you will lose access to paid features.",
+    "cancelConfirm": "Yes, Cancel",
+    "reactivate": "Reactivate Subscription",
+    "subscriptionReactivated": "Subscription reactivated.",
+    "manageBilling": "Manage Billing",
+    "manageBillingHint": "Update your payment method, billing address and tax ID on Stripe",
+    "invoices": "Invoice History",
+    "invoiceNumber": "Invoice",
+    "invoiceDate": "Date",
+    "invoiceAmount": "Amount",
+    "invoiceStatus": "Status",
+    "invoiceDownload": "Download",
+    "noInvoices": "No invoices yet.",
+    "noSubscription": "No active subscription found.",
+    "planChanged": "Plan updated successfully.",
+    "subscriptionCanceled": "Your subscription has been canceled.",
+    "needCustomPlan": "Need a custom plan?",
+    "customPlanDescription": "Get unlimited brands, custom integrations, dedicated support, and more.",
+    "contactUs": "Contact Us",
+    "integrations": "Integrations",
+    "agent": "Agent",
+    "revokeApiKey": "Revoke API key",
+    "revokeApiKeyConfirm": "Revoke this API key? Clients using it will lose access immediately.",
+    "revoke": "Revoke",
+    "agent_removeKeyConfirm": "Remove the Anthropic API key? Team members will lose access to the agent until a new key is saved.",
+    "remove": "Remove",
+    "apiKeys_description": "Long-lived tokens for the Zentic MCP server and other external clients. Keys are shown once at creation — store them somewhere safe.",
+    "apiKeys_mcpEndpoint": "MCP endpoint",
+    "apiKeys_mcpEndpointHint": "Paste this URL + a key below into Claude Desktop / Claude Code / Cursor. See the <link>MCP guide</link>.",
+    "apiKeys_noKeys": "No API keys yet. Create one to connect the MCP server.",
+    "apiKeys_revoked": "revoked",
+    "apiKeys_created": "Created {date} · Last used {lastUsed}",
+    "apiKeys_newKey": "New key",
+    "apiKeys_newKeyTitle": "New API key",
+    "apiKeys_newKeyDescription": "Give this key a memorable name (e.g. \"MCP — my laptop\").",
+    "apiKeys_namePlaceholder": "MCP — local",
+    "apiKeys_create": "Create",
+    "apiKeys_copyTitle": "Copy your API key",
+    "apiKeys_copyDescription": "You won't be able to see this again. Store it somewhere safe.",
+    "apiKeys_done": "Done",
+    "apiKeys_name": "Name",
+    "agent_description": "Bring your own Anthropic API key. The in-product agent uses your key to call Claude directly — usage is billed to your Anthropic account, not to Zentic.",
+    "agent_keyConfigured": "Key configured",
+    "agent_savedAt": "Saved {date}",
+    "agent_savedBy": "by {email}",
+    "agent_noKey": "No key configured. The agent will be locked for everyone in this organization until a key is saved.",
+    "agent_replaceKey": "Replace key",
+    "agent_anthropicKeyLabel": "Anthropic API key",
+    "agent_keyPlaceholder": "sk-ant-…",
+    "agent_replace": "Replace",
+    "agent_keyHint": "Get a key from <link>console.anthropic.com</link>. The key is encrypted at rest; Zentic support cannot read it.",
+    "agent_removeKey": "Remove key",
+    "agent_adminOnly": "Admin-only setting",
+    "agent_adminOnlyHint": "Only org admins can add, replace, or remove the Anthropic API key. Ask an admin if you need it changed.",
+    "integrations_cancel": "Cancel",
+    "integrations_connecting": "Connecting…",
+    "integrations_connect": "Connect",
+    "integrations_propertyMapping": "Property mapping",
+    "integrations_notMapped": "Not mapped",
+    "integrations_selectProperty": "Select a property",
+    "integrations_description": "Connect external data sources. Connections are shared with your whole organization.",
+    "integrations_connected": "Connected",
+    "integrations_notConfigured": "Not configured",
+    "integrations_disconnect": "Disconnect",
+    "integrations_disconnectDescription": "The stored connection is removed for the whole organization. You can reconnect at any time.",
+    "removeMember": "Remove team member",
+    "invitationActions": "Invitation actions",
+    "organization": "Organization",
+    "org_title": "Organization",
+    "org_description": "Manage your organization name and view plan details.",
+    "org_name": "Organization Name",
+    "org_namePlaceholder": "Acme Inc.",
+    "org_slug": "Slug",
+    "org_slugHint": "Used in API and integration references. Contact support to change it.",
+    "org_plan": "Plan",
+    "org_members": "Members",
+    "org_adminOnly": "Only admins can rename the organization.",
+    "org_loadFailed": "Could not load organization details.",
+    "org_saveFailed": "Could not save organization name. Please try again.",
+    "accountSaveFailed": "Could not save account details. Please try again."
+  },
+  "brands": {
+    "title": "Brands",
+    "description": "Manage all the brands you track across AI platforms.",
+    "addBrand": "Add Brand",
+    "editBrand": "Edit Brand",
+    "deleteBrand": "Delete Brand",
+    "noBrands": "No brands yet",
+    "noBrandsDescription": "Add your first brand to start tracking AI visibility.",
+    "switchBrand": "Switch brand",
+    "selectBrand": "Select a brand",
+    "brand": "Brand",
+    "domains": "Domains",
+    "domain": "Domain",
+    "primaryDomain": "Primary Domain",
+    "addDomain": "Add Domain",
+    "removeDomain": "Remove",
+    "setPrimary": "Set as primary",
+    "industry": "Industry",
+    "description_field": "Description",
+    "logoUrl": "Logo URL",
+    "brandName": "Brand Name",
+    "brandNamePlaceholder": "e.g. Nike",
+    "slug": "Slug",
+    "domainPlaceholder": "e.g. example.com",
+    "countryPlaceholder": "e.g. US, TR (optional)",
+    "industryPlaceholder": "Select an industry",
+    "descriptionPlaceholder": "Short description of this brand...",
+    "domainCount": "{count, plural, one {# domain} other {# domains}}",
+    "wizard": {
+      "step1": "Brand & Domains",
+      "step2": "Prompts",
+      "step3": "Competitors",
+      "step1Description": "Set up your brand, add domains, and choose regions.",
+      "step2Description": "Add prompts to track — generate with AI or add manually.",
+      "step3Description": "Add your competitors to compare AI visibility.",
+      "atLeastOneDomain": "At least one domain is required.",
+      "creating": "Creating brand...",
+      "created": "Brand created successfully!",
+      "back": "Back",
+      "next": "Next",
+      "finish": "Finish Setup"
+    },
+    "settings": {
+      "title": "Brand Settings",
+      "generalTab": "General",
+      "domainsTab": "Domains",
+      "aiModelsTab": "AI Models",
+      "dangerTab": "Danger Zone",
+      "saveChanges": "Save Changes",
+      "saved": "Brand updated!",
+      "deleteWarning": "This action cannot be undone. All data for this brand (insights, content, competitors) will be permanently deleted.",
+      "confirmDelete": "Type the brand name to confirm:",
+      "deleteConfirmPlaceholder": "Brand name",
+      "deleteButton": "Delete Brand Permanently",
+      "aiModels": {
+        "description": "Configure which AI platforms to monitor and how often prompts should be checked for this brand.",
+        "platformsActive": "platforms active",
+        "monitoringActive": "Monitoring enabled",
+        "lastChecked": "Last checked:",
+        "hint": "Enabled platforms will be queried at the configured frequency to check your brand's prompt visibility.",
+        "loadError": "Failed to load AI platform settings.",
+        "saveError": "Failed to save AI platform settings."
+      }
+    },
+    "card": {
+      "visibility": "Visibility Score",
+      "mentions": "Mentions",
+      "citations": "Citations",
+      "domainsTracked": "Domains Tracked",
+      "manage": "Manage",
+      "viewInsights": "View Insights",
+      "addTopic": "Add Topics",
+      "addPrompt": "Add Prompts"
+    },
+    "logoUrlHint": "Paste a direct URL to your logo. Leave blank to use the favicon from your primary domain."
+  },
+  "plans": {
+    "free": "Free",
+    "starter": "Starter",
+    "pro": "Pro",
+    "enterprise": "Enterprise",
+    "currentPlan": "Current Plan",
+    "upgrade": "Upgrade",
+    "upgradeTitle": "Upgrade your plan",
+    "upgradeDescription": "Unlock more features and higher limits by upgrading your plan.",
+    "featureLocked": "This feature requires {plan} plan or higher.",
+    "limitReached": "You've reached the {limit} limit on the {plan} plan.",
+    "limits": {
+      "maxBrands": "brands",
+      "maxPrompts": "prompts tracked",
+      "maxPlatforms": "AI platforms",
+      "maxTeamMembers": "team members",
+      "maxDomainsPerBrand": "domains per brand"
+    },
+    "features": {
+      "basic_insights": "Basic Insights",
+      "advanced_analytics": "Advanced Analytics",
+      "prompt_suggestions": "Prompt Suggestions",
+      "daily_monitoring": "Daily Monitoring",
+      "competitor_tracking": "Competitor Tracking",
+      "content_optimization": "Content Optimization",
+      "custom_reports": "Custom Reports",
+      "api_access": "API Access",
+      "white_label": "White Label",
+      "sso_saml": "SSO / SAML"
+    }
+  },
+  "marketing": {
+    "hero": {
+      "badge": "Open Source Ansops Platform",
+      "title": "Your Brand in Every AI Answer",
+      "subtitle": "Monitor, analyze, and optimize your brand's visibility across ChatGPT, Perplexity, Gemini, Claude, and more.",
+      "cta": "Get Started for Free",
+      "secondaryCta": "View on GitHub"
+    },
+    "features": {
+      "title": "Everything you need for AI visibility",
+      "insights": {
+        "title": "Answer Engine Insights",
+        "description": "Track your brand mentions and citations across all major AI platforms in real time."
+      },
+      "content": {
+        "title": "Content Optimization",
+        "description": "Discover content gaps and get AI-powered briefs to improve your visibility."
+      },
+      "traffic": {
+        "title": "AI Traffic Analytics",
+        "description": "See which AI bots are crawling your site and how they convert to human visitors."
+      },
+      "prompts": {
+        "title": "Prompt Volumes",
+        "description": "Understand query volume trends across platforms and identify opportunities."
+      }
+    }
+  }
+}

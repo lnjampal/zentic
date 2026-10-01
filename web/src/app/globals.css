@@ -1,0 +1,28 @@
+/* Theme: Ansvisor Design System (tokens, Tailwind 4 root, plugins, fonts stacks).
+ * Edit packages/ansvisor-design-system/tokens.json and run its `tokens` script —
+ * never redefine :root / .dark tokens here. */
+@import "@workspace/ansvisor-design-system/styles.css";
+
+/* App-specific CSS below. */
+@utility container {
+  margin-inline: auto;
+  padding-inline: 1.5rem;
+  width: 100%;
+
+  @media (width >= 640px) {
+    max-width: 640px;
+  }
+  @media (width >= 768px) {
+    max-width: 768px;
+    padding-inline: 2rem;
+  }
+  @media (width >= 1024px) {
+    max-width: 1024px;
+  }
+  @media (width >= 1280px) {
+    max-width: 1280px;
+  }
+  @media (width >= 1536px) {
+    max-width: 1536px;
+  }
+}

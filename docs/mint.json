@@ -1,0 +1,120 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Zentic",
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg",
+    "href": "https://www.zentic.ai"
+  },
+  "favicon": "/favicon.svg",
+  "metadata": {
+    "og:title": "Zentic Docs",
+    "og:description": "Open-source AI Visibility & AI Search Optimization Platform — track ChatGPT, Gemini, Perplexity, Claude, Copilot brand mentions.",
+    "og:image": "https://app.zentic.ai/opengraph-image",
+    "twitter:card": "summary_large_image",
+    "twitter:image": "https://app.zentic.ai/opengraph-image",
+    "google-site-verification": "mQlyZ6XbIBAH31OrIjuNhO7_0N-CJGobmfqcpq6biek"
+  },
+  "colors": {
+    "primary": "#6366f1",
+    "light": "#a5b4fc",
+    "dark": "#4338ca",
+    "anchors": {
+      "from": "#6366f1",
+      "to": "#8b5cf6"
+    }
+  },
+  "topbarLinks": [
+    {
+      "name": "GitHub",
+      "url": "https://github.com/zentic/zentic"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "Try the Cloud",
+    "url": "https://zentic.ai"
+  },
+  "anchors": [
+    {
+      "name": "GitHub",
+      "icon": "github",
+      "url": "https://github.com/zentic/zentic"
+    },
+    {
+      "name": "Changelog",
+      "icon": "list",
+      "url": "https://github.com/zentic/zentic/releases"
+    }
+  ],
+  "tabs": [
+    {
+      "name": "Guides",
+      "url": "guides"
+    },
+    {
+      "name": "Self-host",
+      "url": "self-host"
+    },
+    {
+      "name": "API Reference",
+      "url": "api-reference"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Get Started",
+      "pages": ["introduction", "quickstart"]
+    },
+    {
+      "group": "Concepts",
+      "pages": [
+        "concepts/what-is-aeo",
+        "concepts/visibility-scoring",
+        "concepts/topics-and-prompts"
+      ]
+    },
+    {
+      "group": "Platform Guides",
+      "pages": [
+        "guides/add-your-first-brand",
+        "guides/answer-engine-insights",
+        "guides/topics",
+        "guides/prompts",
+        "guides/citations",
+        "guides/ai-traffic-analytics",
+        "guides/competitors",
+        "guides/content-optimization",
+        "guides/reports",
+        "guides/mcp-server",
+        "guides/looker-studio"
+      ]
+    },
+    {
+      "group": "Self-host",
+      "pages": [
+        "self-host/docker-compose",
+        "self-host/supabase-setup",
+        "self-host/env-variables",
+        "self-host/upgrading"
+      ]
+    },
+    {
+      "group": "API Reference",
+      "pages": [
+        "api-reference/authentication",
+        "api-reference/metrics",
+        "api-reference/brands",
+        "api-reference/tracking",
+        "api-reference/webhooks"
+      ]
+    },
+    {
+      "group": "Help",
+      "pages": ["faq"]
+    }
+  ],
+  "footerSocials": {
+    "github": "https://github.com/zentic/zentic",
+    "website": "https://zentic.ai"
+  }
+}

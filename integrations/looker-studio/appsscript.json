@@ -1,0 +1,16 @@
+{
+  "timeZone": "Etc/UTC",
+  "exceptionLogging": "STACKDRIVER",
+  "runtimeVersion": "V8",
+  "urlFetchWhitelist": ["https://app.zentic.ai/"],
+  "dataStudio": {
+    "name": "Zentic — AI Visibility Metrics",
+    "logoUrl": "https://github.com/zentic.png",
+    "company": "Zentic",
+    "companyUrl": "https://www.zentic.ai",
+    "addonUrl": "https://www.zentic.ai",
+    "supportUrl": "https://github.com/zentic/zentic/issues",
+    "description": "Blend Zentic AI visibility metrics — ChatGPT, Gemini, Perplexity, Claude and more — with GA4 and Search Console data in one Looker Studio dashboard.",
+    "shortDescription": "AI visibility metrics for Looker Studio"
+  }
+}
