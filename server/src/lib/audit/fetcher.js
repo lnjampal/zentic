@@ -40,8 +40,17 @@ export async function fetchViaScrapeDo(targetUrl, { render = true, retries = 1 }
       const res = await fetch(endpoint);
       const html = await res.text();
       last = { ok: res.ok, status: res.status, html, contentType: res.headers.get('content-type') };
-      // Retry only on proxy-side 5xx (transient); 4xx is the target's verdict.
-      if (res.ok || res.status < 500) return last;
+      if (res.ok) return last;
+      // 401/402/403/429 are usually Scrape.do refusing the request itself
+      // (token, credits, plan or rate limit), not the site's answer. Log what
+      // Scrape.do said and fall back to a direct fetch so the audit still runs.
+      if ([401, 402, 403, 429].includes(res.status)) {
+        console.warn(`[fetcher] Scrape.do returned ${res.status} for ${targetUrl}: ${html.slice(0, 300)}`);
+        const direct = await fetchPageDirect(targetUrl);
+        return direct.ok ? { ...direct, via: 'direct' } : last;
+      }
+      // Retry only on proxy-side 5xx (transient); other 4xx is the target's verdict.
+      if (res.status < 500) return last;
     } catch (err) {
       last = { ok: false, status: 0, html: '', contentType: null, error: err.message };
     }
