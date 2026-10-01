@@ -292,6 +292,7 @@ router.post('/claims/:claimId/audits', writeLimiter, async (req, res) => {
     .select('id', { count: 'exact', head: true })
     .in('claim_id', claimIds.length ? claimIds : [claim.id])
     .is('parent_audit_id', null)
+    .neq('status', 'failed') // an audit that couldn't finish doesn't use up the allowance
     .gte('created_at', dayAgo);
   if ((domainCount ?? 0) >= AUDITS_PER_DOMAIN_PER_DAY) {
     return res.status(429).json({
@@ -306,6 +307,7 @@ router.post('/claims/:claimId/audits', writeLimiter, async (req, res) => {
     .select('id', { count: 'exact', head: true })
     .eq('claim_id', claim.id)
     .is('parent_audit_id', null)
+    .neq('status', 'failed')
     .gte('created_at', monthAgo);
   if ((claimCount ?? 0) >= AUDITS_PER_CLAIM_PER_MONTH) {
     return res.status(429).json({
