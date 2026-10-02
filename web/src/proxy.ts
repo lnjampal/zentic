@@ -35,6 +35,15 @@ export async function proxy(request: NextRequest) {
 
   // '/' is the public home page (the offers page), for visitors and signed-in users alike.
 
+  // An email link that Supabase sends back to the Site URL (its fallback when
+  // no redirect was given) arrives as `/?code=…`. Hand it to /auth/confirm so
+  // the person is signed in instead of landing on the home page signed out.
+  if (pathnameWithoutLocale === '/' && request.nextUrl.searchParams.has('code')) {
+    const confirmUrl = new URL('/auth/confirm', request.url);
+    confirmUrl.searchParams.set('code', request.nextUrl.searchParams.get('code')!);
+    return NextResponse.redirect(confirmUrl);
+  }
+
   // The pricing page lives on the marketing site (zentic.ai/pricing) now,
   // not the app subdomain — redirect any stale links / bookmarks so they
   // land on the canonical page instead of 404'ing (#113).

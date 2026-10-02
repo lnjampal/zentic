@@ -1,12 +1,12 @@
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import { SignInForm } from '@/components/auth/sign-in-form';
-import { MailCheck } from 'lucide-react';
+import { AlertCircle, MailCheck } from 'lucide-react';
 
 export default async function SignInPage({
   searchParams,
 }: {
-  searchParams: Promise<{ verified?: string }>;
+  searchParams: Promise<{ verified?: string; error?: string }>;
 }) {
   const params = await searchParams;
   const showVerificationBanner = params.verified === 'pending';
@@ -15,6 +15,7 @@ export default async function SignInPage({
     <div className="flex min-h-svh flex-col items-center justify-center gap-6 p-6 md:p-10">
       <div className="flex w-full max-w-sm flex-col gap-6">
         {showVerificationBanner && <VerificationBanner />}
+        {params.error && <LinkErrorBanner error={params.error} />}
         <SignInCard />
       </div>
     </div>
@@ -28,6 +29,18 @@ function VerificationBanner() {
     <div className="flex items-start gap-3 rounded-lg border border-primary/30 bg-accent p-4">
       <MailCheck className="mt-0.5 h-5 w-5 shrink-0 text-accent-foreground" />
       <p className="text-sm text-accent-foreground">{t('verificationPending')}</p>
+    </div>
+  );
+}
+
+function LinkErrorBanner({ error }: { error: string }) {
+  const t = useTranslations('auth');
+  const message = error === 'link_other_browser' ? t('errors.linkOtherBrowser') : t('errors.linkExpired');
+
+  return (
+    <div role="alert" className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-4">
+      <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+      <p className="text-sm">{message}</p>
     </div>
   );
 }

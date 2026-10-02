@@ -8,6 +8,7 @@ import { Button, buttonVariants } from '@workspace/ansvisor-design-system/compon
 import { Input } from '@workspace/ansvisor-design-system/components/ui/input';
 import { Label } from '@workspace/ansvisor-design-system/components/ui/label';
 import { Loader2, MailCheck } from 'lucide-react';
+import { toast } from 'sonner';
 
 export function ForgotPasswordForm() {
   const t = useTranslations('auth');
@@ -22,13 +23,19 @@ export function ForgotPasswordForm() {
     const supabase = createClient();
     const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '') ?? window.location.origin;
 
-    await supabase.auth.resetPasswordForEmail(email, {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${appUrl}/auth/confirm?next=/reset-password`,
     });
 
-    // Always show the generic success state regardless of whether the email is
-    // registered — prevents account enumeration.
     setIsLoading(false);
+    // A send limit says nothing about whether the address exists, so it is safe to report.
+    if (error && (error.status === 429 || error.code === 'over_email_send_rate_limit')) {
+      toast.error(t('errors.tooManyEmails'));
+      return;
+    }
+
+    // Otherwise always show the generic success state, whether or not the
+    // email is registered: prevents account enumeration.
     setSubmitted(true);
   }
 

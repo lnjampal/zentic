@@ -1531,6 +1531,10 @@
       "passwordMismatch": "Passwords do not match.",
       "generic": "An error occurred. Please try again.",
       "emailNotConfirmed": "Please verify your email address first. Check your inbox for the confirmation link.",
+      "alreadyRegistered": "An account with this email already exists. Sign in, or reset your password if you’ve forgotten it.",
+      "tooManyEmails": "We’ve sent too many emails in the last hour. Please wait a few minutes and try again.",
+      "linkExpired": "That link has expired or was already used. Request a new one and use the latest email.",
+      "linkOtherBrowser": "Your email is confirmed. Sign in to continue. To reset a password, open the link in the browser you requested it from.",
       "signOutError": "Failed to sign out. Please try again."
     }
   },

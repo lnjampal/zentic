@@ -38,18 +38,33 @@ export function SignUpForm() {
     setIsLoading(true);
     const supabase = createClient();
 
-    const { error } = await supabase.auth.signUp({
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '') ?? window.location.origin;
+    const afterConfirm = nextPath && nextPath.startsWith('/') && !nextPath.startsWith('//') ? nextPath : '/dashboard';
+
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: {
           full_name: fullName,
         },
+        // The confirmation link comes back through /auth/confirm, which signs the
+        // person in and carries them on to where they were going (e.g. "save my report").
+        emailRedirectTo: `${appUrl}/auth/confirm?next=${encodeURIComponent(afterConfirm)}`,
       },
     });
 
     if (error) {
-      toast.error(t('errors.generic'));
+      const rateLimited = error.status === 429 || error.code === 'over_email_send_rate_limit';
+      toast.error(t(rateLimited ? 'errors.tooManyEmails' : 'errors.generic'));
+      setIsLoading(false);
+      return;
+    }
+
+    // For an address that already has an account, Supabase answers "ok" with an
+    // empty identities list and sends no email. Say so instead of "check your inbox".
+    if (data.user && (data.user.identities?.length ?? 0) === 0) {
+      toast.error(t('errors.alreadyRegistered'));
       setIsLoading(false);
       return;
     }
