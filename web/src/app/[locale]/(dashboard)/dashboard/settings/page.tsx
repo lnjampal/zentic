@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { useRouter } from '@/i18n/navigation';
+import { useSignOut } from '@/hooks/use-sign-out';
 import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@workspace/ansvisor-design-system/components/ui/card';
@@ -38,7 +38,7 @@ type Section =
 export default function SettingsPage() {
   const t = useTranslations('settings');
   const tAuth = useTranslations('auth');
-  const router = useRouter();
+  const { signOut, isSigningOut } = useSignOut();
   const { isCloud } = usePlanContext();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get('tab');
@@ -64,13 +64,6 @@ export default function SettingsPage() {
       setEmail(u?.email ?? '');
     });
   }, []);
-
-  async function handleSignOut() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push('/sign-in');
-    router.refresh();
-  }
 
   async function handleSaveAccount() {
     setSavingName(true);
@@ -163,7 +156,8 @@ export default function SettingsPage() {
                 <Separator className="my-2" />
                 <Button
                   variant="outline"
-                  onClick={handleSignOut}
+                  onClick={signOut}
+                  disabled={isSigningOut}
                   className="text-destructive hover:text-destructive"
                 >
                   {tAuth('signOut')}

@@ -14,7 +14,8 @@ import { Badge } from '@workspace/ansvisor-design-system/components/ui/badge';
 import { Sheet, SheetContent, SheetTrigger } from '@workspace/ansvisor-design-system/components/ui/sheet';
 import { UserProfileNavItem } from '@/components/layout/user-profile-nav-item';
 import { useBrandStore } from '@/stores/use-brand-store';
-import { Crown, Menu, MessageSquareText } from 'lucide-react';
+import { useSignOut } from '@/hooks/use-sign-out';
+import { Crown, LogOut, Menu, MessageSquareText } from 'lucide-react';
 import Image from 'next/image';
 import { useTheme } from 'next-themes';
 
@@ -23,6 +24,8 @@ export function MobileNav() {
   const pathname = usePathname();
   const t = useTranslations('nav');
   const tBrands = useTranslations('brands');
+  const tAuth = useTranslations('auth');
+  const { signOut, isSigningOut } = useSignOut();
   const { canUse, requiredPlanFor, isCloud } = useFeatureGate();
   // Probe once per session — shares the module-level cache with sidebar.tsx
   // so at most one network request is made even when both components mount.
@@ -149,6 +152,17 @@ export function MobileNav() {
         </div>
         <div className="border-t p-2">
           <UserProfileNavItem onClick={() => setOpen(false)} />
+          <button
+            type="button"
+            onClick={signOut}
+            disabled={isSigningOut}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+          >
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center">
+              <LogOut className="h-4 w-4" />
+            </span>
+            {tAuth('signOut')}
+          </button>
         </div>
       </SheetContent>
     </Sheet>

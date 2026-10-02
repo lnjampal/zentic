@@ -25,7 +25,7 @@ import {
 } from '@workspace/ansvisor-design-system/components/ui/dropdown-menu';
 import { BrandSwitcher } from '@/components/layout/brand-switcher';
 import { MobileNav } from '@/components/layout/mobile-nav';
-import { UserProfileNavItem } from '@/components/layout/user-profile-nav-item';
+import { UserMenu } from '@/components/layout/user-profile-nav-item';
 import { ChevronDown, ChevronRight, Crown } from 'lucide-react';
 
 /**
@@ -195,8 +195,8 @@ export function TopNav() {
         </nav>
 
         <div className="ml-auto shrink-0">
-          <UserProfileNavItem collapsed className="w-10 md:hidden" />
-          <UserProfileNavItem className="hidden max-w-56 md:flex" />
+          <UserMenu collapsed className="w-10 md:hidden" />
+          <UserMenu className="hidden max-w-56 md:flex" />
         </div>
       </div>
 

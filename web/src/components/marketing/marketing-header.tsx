@@ -1,12 +1,8 @@
 import Image from 'next/image';
-import { useTranslations } from 'next-intl';
-import { Link } from '@/i18n/navigation';
-import { Button } from '@workspace/ansvisor-design-system/components/ui/button';
 import { siteConfig } from '@/config/site';
+import { MarketingAuthActions } from '@/components/marketing/marketing-auth-actions';
 
 export function MarketingHeader() {
-  const t = useTranslations('auth');
-
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-16 items-center justify-between">
@@ -30,16 +26,7 @@ export function MarketingHeader() {
           <span className="text-xl font-bold tracking-tight">{siteConfig.name}</span>
         </a>
 
-        <div className="flex items-center gap-3">
-          <Link href="/sign-in">
-            <Button variant="ghost" size="sm">
-              {t('signIn')}
-            </Button>
-          </Link>
-          <Link href="/sign-up">
-            <Button size="sm">{t('createAccount')}</Button>
-          </Link>
-        </div>
+        <MarketingAuthActions />
       </div>
     </header>
   );

@@ -1,34 +1,17 @@
 'use client';
 
-import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { LogOut } from 'lucide-react';
-import { toast } from 'sonner';
-import { createClient } from '@/lib/supabase/client';
+import { useSignOut } from '@/hooks/use-sign-out';
 
 export function OnboardingSignOutButton() {
   const tAuth = useTranslations('auth');
-  const [isSigningOut, setIsSigningOut] = useState(false);
-
-  const handleSignOut = async () => {
-    setIsSigningOut(true);
-
-    const supabase = createClient();
-    const { error } = await supabase.auth.signOut();
-
-    if (error) {
-      setIsSigningOut(false);
-      toast.error(tAuth('errors.signOutError'));
-      return;
-    }
-
-    window.location.href = '/sign-in';
-  };
+  const { signOut, isSigningOut } = useSignOut();
 
   return (
     <button
       type="button"
-      onClick={handleSignOut}
+      onClick={signOut}
       disabled={isSigningOut}
       className="fixed bottom-6 right-6 z-50 flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
     >

@@ -61,7 +61,8 @@
     "settings": "Settings",
     "analytics": "Analytics",
     "optimization": "Optimization",
-    "toggleMenu": "Toggle navigation menu"
+    "toggleMenu": "Toggle navigation menu",
+    "accountMenu": "Account menu"
   },
   "actionCenter": {
     "tabs": {
@@ -1489,6 +1490,7 @@
     "signIn": "Sign in",
     "signUp": "Sign up",
     "signOut": "Sign out",
+    "goToDashboard": "Dashboard",
     "email": "Email",
     "password": "Password",
     "forgotPassword": "Forgot password?",
